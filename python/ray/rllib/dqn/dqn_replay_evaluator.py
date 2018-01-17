@@ -63,14 +63,16 @@ class DQNReplayEvaluator(DQNEvaluator):
         else:
             samples = [DQNEvaluator.sample(self)]
 
-        for s in samples:
-            for row in s.rows():
-                self.replay_buffer.add(
-                    row["obs"], row["actions"], row["rewards"], row["new_obs"],
-                    row["dones"])
-
         if no_replay:
+            for s in samples:
+                for row in s.rows():
+                    self.replay_buffer.add(
+                        row["obs"], row["actions"], row["rewards"],
+                        row["new_obs"], row["dones"])
+
+            print("buffer size", len(self.replay_buffer))
             return SampleBatch.concat_samples(samples)
+
 
         # Then return a batch sampled from the buffer
         if self.config["prioritized_replay"]:

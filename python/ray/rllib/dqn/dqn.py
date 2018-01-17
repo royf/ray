@@ -35,7 +35,7 @@ DEFAULT_CONFIG = dict(
     # Max num timesteps for annealing schedules. Exploration is annealed from
     # 1.0 to exploration_fraction over this number of timesteps scaled by
     # exploration_fraction
-    schedule_max_timesteps=100000,
+    schedule_max_timesteps=500000,
     # Number of env steps to optimize for before returning
     timesteps_per_iteration=1000,
     # Fraction of entire training period over which the exploration rate is
@@ -44,14 +44,14 @@ DEFAULT_CONFIG = dict(
     # Final value of random action probability
     exploration_final_eps=0.02,
     # How many steps of the model to sample before learning starts.
-    learning_starts=1000,
+    learning_starts=50000,
     # Update the target network every `target_network_update_freq` steps.
     target_network_update_freq=500,
 
     # === Replay buffer ===
     # Size of the replay buffer. Note that if async_updates is set, then each
     # worker will have a replay buffer of this size.
-    buffer_size=50000,
+    buffer_size=100000,
     # If True prioritized replay buffer will be used.
     prioritized_replay=True,
     # Alpha parameter for prioritized replay buffer
@@ -69,7 +69,7 @@ DEFAULT_CONFIG = dict(
     lr=5e-4,
     # Update the replay buffer with this many samples at once. Note that this
     # setting applies per-worker if num_workers > 1.
-    sample_batch_size=1,
+    sample_batch_size=50,
     # Size of a batched sampled from replay buffer for training. Note that if
     # async_updates is set, then each worker returns gradients for a batch of
     # this size.
@@ -201,7 +201,7 @@ class DQNAgent(Agent):
             if not isinstance(stats, list):
                 stats = [stats]
         new_timestep = sum(s["local_timestep"] for s in stats)
-        assert new_timestep > self.global_timestep, new_timestep
+        assert new_timestep >= self.global_timestep, new_timestep
         self.global_timestep = new_timestep
         self.local_evaluator.set_global_timestep(self.global_timestep)
         for e in self.remote_evaluators:
