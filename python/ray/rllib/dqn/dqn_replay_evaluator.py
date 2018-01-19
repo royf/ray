@@ -53,6 +53,9 @@ class DQNReplayEvaluator(DQNEvaluator):
 
         self.samples_to_prioritize = None
 
+        dataset_path = os.path.join(self.logdir, "experiences.json")
+        dataset = open(dataset_path, "w")
+
     def sample(self, no_replay=False):
         # First seed the replay buffer with a few new samples
         if self.workers:
@@ -62,6 +65,20 @@ class DQNReplayEvaluator(DQNEvaluator):
             samples = ray.get([w.sample.remote() for w in self.workers])
         else:
             samples = [DQNEvaluator.sample(self)]
+
+        for s in samples:
+            for row in s.rows():
+                self.dataset.write(json.dumps({
+                    "obs": row["obs"],
+                    "new_obs": row["new_obs"],
+                    "reward": row["rewards"],
+                    "action": row["actions"],
+                    "done": row["dones"],
+                    "learning_started": not no_replay,
+                    "iteration": self.local_iteration,
+                }))
+                self.dataset.write("\n")
+                self.dataset.flush()
 
         if no_replay:
             for s in samples:
