@@ -55,8 +55,27 @@ class DQNReplayEvaluator(DQNEvaluator):
 
         self.samples_to_prioritize = None
 
+        if self.config["dataset_path"]:
+            print("Loading replay samples from", self.config["dataset_path"])
+            self.load(self.config["dataset_path"])
+
         dataset_path = os.path.join(logdir, "experiences.json")
+        print("Logging experience dataset to", dataset_path)
         self.dataset = open(dataset_path, "w")
+
+    def load(self, dataset_path):
+        lines = open(dataset_path).read().split("\n")
+        n = 0
+        for line in lines:
+            line = line.strip()
+            if line:
+                row = json.loads(line)
+                n += 1
+                self.replay_buffer.add(
+                    row["obs"], row["action"], row["reward"],
+                    row["new_obs"], row["done"])
+        print("Loaded {} steps into replay buffer", n)
+        self.local_timestep += n
 
     def sample(self, no_replay=False):
         # First seed the replay buffer with a few new samples

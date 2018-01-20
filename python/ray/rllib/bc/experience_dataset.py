@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import itertools
 import pickle
 
@@ -20,12 +21,18 @@ class ExperienceDataset(object):
           each step containing the observation and action as its first two elements.
           The file must be available on each machine used by a BCEvaluator.
         """
-        self._dataset = list(itertools.chain.from_iterable(pickle.load(open(dataset_path, "rb"))))
+#        self._dataset = list(itertools.chain.from_iterable(pickle.load(open(dataset_path, "rb"))))
+        self._dataset = []
+        for line in open(dataset_path).read().split("\n"):
+            line = line.strip()
+            if line:
+                self._dataset.append(json.loads(line))
+        print("Loaded dataset size", len(self._dataset))
 
     def sample(self, batch_size):
         indexes = np.random.choice(len(self._dataset), batch_size)
         samples = {
-            'observations': [self._dataset[i][0] for i in indexes],
-            'actions': [self._dataset[i][1] for i in indexes]
+            'observations': [self._dataset[i]["obs"] for i in indexes],
+            'actions': [self._dataset[i]["action"] for i in indexes],
         }
         return samples

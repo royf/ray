@@ -64,6 +64,9 @@ DEFAULT_CONFIG = dict(
     # Epsilon to add to the TD errors when updating priorities.
     prioritized_replay_eps=1e-6,
 
+    # Load to replay buffer
+    dataset_path=None,
+
     # === Optimization ===
     # Learning rate for adam optimizer
     lr=5e-4,
