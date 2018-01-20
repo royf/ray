@@ -2,6 +2,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import json
 import numpy as np
 
 import ray
@@ -53,8 +55,8 @@ class DQNReplayEvaluator(DQNEvaluator):
 
         self.samples_to_prioritize = None
 
-        dataset_path = os.path.join(self.logdir, "experiences.json")
-        dataset = open(dataset_path, "w")
+        dataset_path = os.path.join(logdir, "experiences.json")
+        self.dataset = open(dataset_path, "w")
 
     def sample(self, no_replay=False):
         # First seed the replay buffer with a few new samples
@@ -69,13 +71,13 @@ class DQNReplayEvaluator(DQNEvaluator):
         for s in samples:
             for row in s.rows():
                 self.dataset.write(json.dumps({
-                    "obs": row["obs"],
-                    "new_obs": row["new_obs"],
+                    "obs": row["obs"].tolist(),
+                    "new_obs": row["new_obs"].tolist(),
                     "reward": row["rewards"],
-                    "action": row["actions"],
+                    "action": row["actions"].tolist(),
                     "done": row["dones"],
                     "learning_started": not no_replay,
-                    "iteration": self.local_iteration,
+                    "timestep": float(self.local_timestep),
                 }))
                 self.dataset.write("\n")
                 self.dataset.flush()
