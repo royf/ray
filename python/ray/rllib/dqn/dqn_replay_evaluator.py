@@ -5,6 +5,7 @@ from __future__ import print_function
 import os
 import json
 import numpy as np
+import random
 
 import ray
 from ray.rllib.dqn.dqn_evaluator import DQNEvaluator
@@ -64,16 +65,16 @@ class DQNReplayEvaluator(DQNEvaluator):
         self.dataset = open(dataset_path, "w")
 
     def load(self, dataset_path):
-        lines = open(dataset_path).read().split("\n")
         n = 0
-        for line in lines:
-            line = line.strip()
-            if line:
-                row = json.loads(line)
-                n += 1
-                self.replay_buffer.add(
-                    row["obs"], row["action"], row["reward"],
-                    row["new_obs"], row["done"])
+        for path, sample_frac in dataset_path.items():
+            for line in open(path).read().split("\n"):
+                line = line.strip()
+                if line and random.random() < sample_frac:
+                    row = json.loads(line)
+                    n += 1
+                    self.replay_buffer.add(
+                        row["obs"], row["action"], row["reward"],
+                        row["new_obs"], row["done"])
         print("Loaded {} steps into replay buffer", n)
         self.local_timestep += n
 

@@ -5,20 +5,16 @@ from __future__ import print_function
 import ray
 from ray.rllib.agent import Agent
 from ray.rllib.bc.bc_evaluator import BCEvaluator, GPURemoteBCEvaluator, RemoteBCEvaluator
-from ray.rllib.optimizers import AsyncOptimizer
+from ray.rllib.optimizers import LocalSyncOptimizer
 from ray.tune.result import TrainingResult
 
 DEFAULT_CONFIG = {
-    # Number of workers (excluding master)
-    "num_workers": 4,
     # Size of rollout batch
     "batch_size": 100,
     # Max global norm for each gradient calculated by worker
     "grad_clip": 40.0,
     # Learning rate
     "lr": 0.0001,
-    # Whether to place workers on GPUs
-    "use_gpu_for_workers": False,
     # Model and preprocessor options
     "model": {
         # (Image statespace) - Converts image to Channels = 1
@@ -48,30 +44,24 @@ class BCAgent(Agent):
     def _init(self):
         self.local_evaluator = BCEvaluator(
             self.registry, self.env_creator, self.config, self.logdir)
-        if self.config["use_gpu_for_workers"]:
-            remote_cls = GPURemoteBCEvaluator
-        else:
-            remote_cls = RemoteBCEvaluator
-        self.remote_evaluators = [
-            remote_cls.remote(
-                self.registry, self.env_creator, self.config, self.logdir)
-            for _ in range(self.config["num_workers"])]
-        self.optimizer = AsyncOptimizer(
-            self.config["optimizer"], self.local_evaluator,
-            self.remote_evaluators)
+        self.optimizer = LocalSyncOptimizer(
+            self.config["optimizer"], self.local_evaluator, [])
 
     def _train(self):
-        self.optimizer.step()
-        metric_lists = [re.get_metrics.remote() for re in self.remote_evaluators]
+        for _ in range(100):
+            self.optimizer.step()
         total_samples = 0
         total_loss = 0
-        for metrics in metric_lists:
-            for m in ray.get(metrics):
-                total_samples += m["num_samples"]
-                total_loss += m["loss"]
+        for m in self.local_evaluator.get_metrics():
+            total_samples += m["num_samples"]
+            total_loss += m["loss"]
+        stats = self.local_evaluator.stats()
         result = TrainingResult(
             mean_loss=total_loss / total_samples,
             timesteps_this_iter=total_samples,
+            episode_reward_mean=stats["mean_100ep_reward"],
+            episode_len_mean=stats["mean_100ep_length"],
+            episodes_total=stats["num_episodes"],
         )
         return result
 

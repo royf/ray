@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import pickle
 import queue
+import numpy as np
 
 import ray
 from ray.rllib.bc.experience_dataset import ExperienceDataset
@@ -15,6 +16,7 @@ from ray.rllib.optimizers import Evaluator
 class BCEvaluator(Evaluator):
     def __init__(self, registry, env_creator, config, logdir):
         env = ModelCatalog.get_preprocessor_as_wrapper(registry, env_creator(config["env_config"]), config["model"])
+        self.env = env
         self.dataset = ExperienceDataset(config["dataset_path"])
         # TODO(rliaw): should change this to be just env.observation_space
         self.policy = BCPolicy(registry, env.observation_space.shape, env.action_space, config)
@@ -22,8 +24,39 @@ class BCEvaluator(Evaluator):
         self.logdir = logdir
         self.metrics_queue = queue.Queue()
 
+        self.local_timestep = 0
+        self.episode_rewards = [0.0]
+        self.episode_lengths = [0.0]
+        self.obs = self.env.reset()
+
     def sample(self):
+        self._step()
         return self.dataset.sample(self.config["batch_size"])
+
+    def stats(self):
+        mean_100ep_reward = round(np.mean(self.episode_rewards[-101:-1]), 5)
+        mean_100ep_length = round(np.mean(self.episode_lengths[-101:-1]), 5)
+        return {
+            "mean_100ep_reward": mean_100ep_reward,
+            "mean_100ep_length": mean_100ep_length,
+            "num_episodes": len(self.episode_rewards),
+            "local_timestep": self.local_timestep,
+        }
+
+    def _step(self):
+        """Takes a single step, and returns the result of the step."""
+        action = self.policy.compute(self.obs)[0][0]
+        new_obs, rew, done, _ = self.env.step(action)
+        ret = (self.obs, action, rew, new_obs, float(done))
+        self.obs = new_obs
+        self.episode_rewards[-1] += rew
+        self.episode_lengths[-1] += 1
+        if done:
+            self.obs = self.env.reset()
+            self.episode_rewards.append(0.0)
+            self.episode_lengths.append(0.0)
+        self.local_timestep += 1
+        return ret
 
     def compute_gradients(self, samples):
         gradient, info = self.policy.compute_gradients(samples)

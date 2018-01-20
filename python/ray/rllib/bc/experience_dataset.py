@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
 import json
 import itertools
 import pickle
@@ -23,11 +24,12 @@ class ExperienceDataset(object):
         """
 #        self._dataset = list(itertools.chain.from_iterable(pickle.load(open(dataset_path, "rb"))))
         self._dataset = []
-        for line in open(dataset_path).read().split("\n"):
-            line = line.strip()
-            if line:
-                self._dataset.append(json.loads(line))
-        print("Loaded dataset size", len(self._dataset))
+        for path, sample_frac in dataset_path.items():
+            for line in open(path).read().split("\n"):
+                line = line.strip()
+                if line and random.random() < sample_frac:
+                    self._dataset.append(json.loads(line))
+            print("Loaded dataset size", len(self._dataset))
 
     def sample(self, batch_size):
         indexes = np.random.choice(len(self._dataset), batch_size)
