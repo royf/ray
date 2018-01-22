@@ -91,8 +91,8 @@ class DQNReplayEvaluator(DQNEvaluator):
         for s in samples:
             for row in s.rows():
                 self.dataset.write(json.dumps({
-                    "obs": row["obs"].tolist(),
-                    "new_obs": row["new_obs"].tolist(),
+                    "obs": np.array(row["obs"]).tolist(),
+                    "new_obs": np.array(row["new_obs"]).tolist(),
                     "reward": row["rewards"],
                     "action": row["actions"].tolist(),
                     "done": row["dones"],
