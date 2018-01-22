@@ -150,8 +150,8 @@ class DQNEvaluator(TFMultiGPUSupport):
         return ret
 
     def stats(self):
-        mean_100ep_reward = round(np.mean(self.episode_rewards[-101:-1]), 5)
-        mean_100ep_length = round(np.mean(self.episode_lengths[-101:-1]), 5)
+        mean_100ep_reward = round(np.mean(self.episode_rewards[-11:-1]), 5)
+        mean_100ep_length = round(np.mean(self.episode_lengths[-11:-1]), 5)
         exploration = self.exploration.value(self.global_timestep)
         return {
             "mean_100ep_reward": mean_100ep_reward,

@@ -37,8 +37,8 @@ class BCEvaluator(Evaluator):
         return self.dataset.sample(self.config["batch_size"])
 
     def stats(self):
-        mean_100ep_reward = round(np.mean(self.episode_rewards[-101:-1]), 5)
-        mean_100ep_length = round(np.mean(self.episode_lengths[-101:-1]), 5)
+        mean_100ep_reward = round(np.mean(self.episode_rewards[-11:-1]), 5)
+        mean_100ep_length = round(np.mean(self.episode_lengths[-11:-1]), 5)
         return {
             "mean_100ep_reward": mean_100ep_reward,
             "mean_100ep_length": mean_100ep_length,
