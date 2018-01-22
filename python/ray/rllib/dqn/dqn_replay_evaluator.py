@@ -10,6 +10,7 @@ import numpy as np
 import random
 
 import ray
+from ray.rllib.bc.experience_dataset import unpack
 from ray.rllib.dqn.dqn_evaluator import DQNEvaluator
 from ray.rllib.dqn.common.schedules import LinearSchedule
 from ray.rllib.dqn.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
@@ -19,7 +20,7 @@ from ray.rllib.optimizers import SampleBatch
 def pack(data):
     buf = io.BytesIO()
     np.savez_compressed(buf, **data)
-    return base64.b64encode(buf.get_value())
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 class DQNReplayEvaluator(DQNEvaluator):
@@ -78,7 +79,7 @@ class DQNReplayEvaluator(DQNEvaluator):
             for line in open(path).read().split("\n"):
                 line = line.strip()
                 if line and random.random() < sample_frac:
-                    row = json.loads(line)
+                    row = unpack(json.loads(line))
                     n += 1
                     self.replay_buffer.add(
                         row["obs"], row["action"], row["reward"],
@@ -119,7 +120,7 @@ class DQNReplayEvaluator(DQNEvaluator):
                         row["obs"], row["actions"], row["rewards"],
                         row["new_obs"], row["dones"])
 
-            print("buffer size", len(self.replay_buffer))
+            print("Added sample to buffer, size", len(self.replay_buffer))
             return SampleBatch.concat_samples(samples)
 
 
