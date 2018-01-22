@@ -6,8 +6,18 @@ import random
 import json
 import itertools
 import pickle
+import io
 
+import base64
 import numpy as np
+
+
+def unpack(obj):
+    data = np.load(io.BytesIO(base64.b64decode(obj["data"])))
+    del obj["data"]
+    for k, v in data.items():
+        obj[k] = v
+    return obj
 
 
 class ExperienceDataset(object):
@@ -28,7 +38,7 @@ class ExperienceDataset(object):
             for line in open(path).read().split("\n"):
                 line = line.strip()
                 if line and random.random() < sample_frac:
-                    self._dataset.append(json.loads(line))
+                    self._dataset.append(unpack(json.loads(line)))
             print("Loaded dataset size", len(self._dataset))
 
     def sample(self, batch_size):

@@ -4,6 +4,8 @@ from __future__ import print_function
 
 import os
 import json
+import io
+import base64
 import numpy as np
 import random
 
@@ -12,6 +14,12 @@ from ray.rllib.dqn.dqn_evaluator import DQNEvaluator
 from ray.rllib.dqn.common.schedules import LinearSchedule
 from ray.rllib.dqn.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
 from ray.rllib.optimizers import SampleBatch
+
+
+def pack(data):
+    buf = io.BytesIO()
+    np.savez_compressed(buf, **data)
+    return base64.b64encode(buf.get_value())
 
 
 class DQNReplayEvaluator(DQNEvaluator):
@@ -91,8 +99,10 @@ class DQNReplayEvaluator(DQNEvaluator):
         for s in samples:
             for row in s.rows():
                 self.dataset.write(json.dumps({
-                    "obs": np.array(row["obs"]).tolist(),
-                    "new_obs": np.array(row["new_obs"]).tolist(),
+                    "data": pack({
+                        "obs": np.array(row["obs"]),
+                        "new_obs": np.array(row["new_obs"]),
+                    }),
                     "reward": row["rewards"],
                     "action": row["actions"].tolist(),
                     "done": row["dones"],
