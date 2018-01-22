@@ -95,5 +95,5 @@ class BCPolicy(Policy):
         self.variables.set_weights(weights)
 
     def compute(self, ob, *args):
-        action = self.sess.run(self.sample, {self.x: [ob]})
+        action = self.sess.run(self.sample, {self.x: [np.array(ob)]})
         return action, None

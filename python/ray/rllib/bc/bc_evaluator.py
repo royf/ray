@@ -9,23 +9,20 @@ import numpy as np
 import ray
 from ray.rllib.bc.experience_dataset import ExperienceDataset
 from ray.rllib.bc.policy import BCPolicy
+from ray.rllib.dqn.common.wrappers import wrap_dqn
 from ray.rllib.models import ModelCatalog
 from ray.rllib.optimizers import Evaluator
 
 
 class BCEvaluator(Evaluator):
     def __init__(self, registry, env_creator, config, logdir):
-        env = ModelCatalog.get_preprocessor_as_wrapper(registry, env_creator(config["env_config"]), config["model"])
+        env = wrap_dqn(registry, env_creator(config["env_config"]), config["model"])
         self.env = env
         self.dataset = ExperienceDataset(config["dataset_path"])
         print("env is", env)
         print("config is", config["model"])
         print("observation space", env.observation_space.shape)
-        shape = list(env.observation_space.shape)
-        if shape[-1] == 1:
-           shape[-1] *= 4   # compensate for wrap_dqn
-        shape = tuple(shape)
-        self.policy = BCPolicy(registry, shape, env.action_space, config)
+        self.policy = BCPolicy(registry, env.observation_space.shape, env.action_space, config)
         self.config = config
         self.logdir = logdir
         self.metrics_queue = queue.Queue()
