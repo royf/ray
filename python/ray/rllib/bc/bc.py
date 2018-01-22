@@ -62,6 +62,7 @@ class BCAgent(Agent):
             episode_reward_mean=stats["mean_100ep_reward"],
             episode_len_mean=stats["mean_100ep_length"],
             episodes_total=stats["num_episodes"],
+            info=self.optimizer.stats()
         )
         return result
 
