@@ -113,14 +113,15 @@ class DQNReplayEvaluator(DQNEvaluator):
                 self.dataset.write("\n")
                 self.dataset.flush()
 
-        if no_replay:
+        if no_replay or not self.config["offline_mode"]:
             for s in samples:
                 for row in s.rows():
                     self.replay_buffer.add(
                         row["obs"], row["actions"], row["rewards"],
                         row["new_obs"], row["dones"])
+            print("Added samples to buffer, size", len(self.replay_buffer))
 
-            print("Added sample to buffer, size", len(self.replay_buffer))
+        if no_replay:
             return SampleBatch.concat_samples(samples)
 
 
