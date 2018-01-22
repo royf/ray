@@ -17,9 +17,8 @@ class BCPolicy(Policy):
         self.local_steps = 0
         self.config = config
         self.summarize = summarize
-        worker_device = "/job:localhost/replica:0/task:0/cpu:0"
         self.g = tf.Graph()
-        with self.g.as_default(), tf.device(worker_device):
+        with self.g.as_default():
             with tf.variable_scope(name):
                 self._setup_graph(ob_space, action_space)
             print("Setting up loss")
