@@ -18,8 +18,14 @@ class BCEvaluator(Evaluator):
         env = ModelCatalog.get_preprocessor_as_wrapper(registry, env_creator(config["env_config"]), config["model"])
         self.env = env
         self.dataset = ExperienceDataset(config["dataset_path"])
-        # TODO(rliaw): should change this to be just env.observation_space
-        self.policy = BCPolicy(registry, env.observation_space.shape, env.action_space, config)
+        print("env is", env)
+        print("config is", config["model"])
+        print("observation space", env.observation_space.shape)
+        shape = list(env.observation_space.shape)
+        if shape[-1] == 1:
+           shape[-1] *= 4   # compensate for wrap_dqn
+        shape = tuple(shape)
+        self.policy = BCPolicy(registry, shape, env.action_space, config)
         self.config = config
         self.logdir = logdir
         self.metrics_queue = queue.Queue()
