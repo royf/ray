@@ -13,6 +13,8 @@ import numpy as np
 
 
 def unpack(obj):
+    if "data" not in obj:
+        return obj
     data = np.load(io.BytesIO(base64.b64decode(obj["data"])))
     del obj["data"]
     for k, v in data.items():
