@@ -13,6 +13,10 @@ from ray.tune import TuneError
 from ray.tune.logger import NoopLogger, UnifiedLogger
 from ray.tune.result import TrainingResult, DEFAULT_RESULTS_DIR, pretty_print
 from ray.tune.registry import _default_registry, get_registry, TRAINABLE_CLASS
+from ray.utils import random_string, binary_to_hex
+
+DEBUG_PRINT_INTERVAL = 5
+MAX_LEN_IDENTIFIER = 130
 
 
 class Resources(
@@ -329,6 +333,11 @@ class Trial(object):
             logger_creator=logger_creator)
 
     def __str__(self):
+        """Combines ``env`` with ``trainable_name`` and ``experiment_tag``.
+
+        Truncates to MAX_LEN_IDENTIFIER (default is 130) to avoid problems
+        when creating logging directories.
+        """
         if "env" in self.config:
             identifier = "{}_{}".format(
                 self.trainable_name, self.config["env"])
@@ -336,4 +345,4 @@ class Trial(object):
             identifier = self.trainable_name
         if self.experiment_tag:
             identifier += "_" + self.experiment_tag
-        return identifier
+        return identifier[:MAX_LEN_IDENTIFIER]
