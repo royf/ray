@@ -70,6 +70,8 @@ DEFAULT_CONFIG = dict(
     # Load to replay buffer
     dataset_path=None,
     offline_mode=False,
+    weight_j_e=1.0,
+    expert_frac=1.0,
 
     # === Optimization ===
     # Learning rate for adam optimizer
