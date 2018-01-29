@@ -33,7 +33,7 @@ cdef double get_prior(char* prior_name, int alphabet_size):
 
 cdef double log_add(double log_x, double log_y):
     """Given log x and log y, returns log(x + y)."""
-    # Swap variables so log_y is larger.
+    # Swap variables so log_x is larger.
     if log_x < log_y:
         log_x, log_y = log_y, log_x
 
