@@ -132,7 +132,17 @@ class ModelAndLoss(object):
                 self.q_tp1 * tf.one_hot(
                     q_tp1_best_using_online_net, num_actions), 1)
         else:
-            q_tp1_best = tf.reduce_max(self.q_tp1, 1)
+            best_a = tf.argmax(self.q_tp1, 1)
+            best_q = tf.reduce_max(self.q_tp1, 1, True)
+            best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(best_a, num_actions), 1)
+            subopt_q = boolean_mask(self.q_tp1, self.q_tp1 < best_q - config["gap_epsilon"], 1)
+            second_best_a = tf.argmax(subopt_q, 1)
+            second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(second_best_a, num_actions), 1)
+            second_best_q = tf.reduce_max(subopt_q, 1)
+            gap_mean = tf.squeeze(best_q, 1) - second_best_q
+            gap_var = best_q_var / best_cnt + second_best_q_var / second_best_cnt
+            beta = 2 * gap_mean / gap_var
+            q_tp1_best = reduce_softmax(self.q_tp1, 1, beta)
         q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
 
         # compute RHS of bellman equation
