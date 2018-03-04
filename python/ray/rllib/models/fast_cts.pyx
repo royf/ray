@@ -66,6 +66,10 @@ cdef double estimator_prob(EstimatorStruct* e, int symbol):
     cdef EstimatorStruct estimator = e[0]
     return e[0].counts[symbol] / e[0].count_total
 
+cdef double estimator_recoding_prob(EstimatorStruct* e, int symbol):
+    cdef EstimatorStruct estimator = e[0]
+    return (e[0].counts[symbol] + 1.) / (e[0].count_total + 1.)
+
 cdef double estimator_update(EstimatorStruct* e, int symbol):
     cdef double prob = estimator_prob(e, symbol)
     cdef double log_prob = log(prob)
@@ -107,7 +111,7 @@ cdef void free_cts_node(CTSNodeStruct* node):
     PyMem_Free(node[0]._children)
 
 cdef double node_update(CTSNodeStruct* node, int[:] context, int symbol):
-    lp_estimator = estimator_update(node[0].estimator, symbol)
+    cdef double lp_estimator = estimator_update(node[0].estimator, symbol)
 
     # If not a leaf node, recurse, creating nodes as needed.
     cdef CTSNodeStruct* child
@@ -137,6 +141,18 @@ cdef double node_log_prob(CTSNodeStruct* node, int[:] context, int symbol):
     else:
         return lp_estimator
 
+cdef double node_log_recoding_prob(CTSNodeStruct* node, int[:] context, int symbol):
+    cdef double lp_estimator = log(estimator_recoding_prob(node[0].estimator, symbol))
+    cdef CTSNodeStruct* child
+
+    if context.shape[0] > 0:
+        child = node_get_child(node, context[context.shape[0]-1])
+        lp_child = node_log_recoding_prob(child, context[:context.shape[0]-1], symbol)
+
+        return node_recoding_mix_prediction(node, lp_estimator, lp_child)
+    else:
+        return lp_estimator
+
 cdef CTSNodeStruct* node_get_child(CTSNodeStruct* node, int symbol):
     if node[0]._children == NULL:
         node[0]._children = <CTSNodeStruct*>PyMem_Malloc(node._model[0].alphabet_size*sizeof(CTSNodeStruct))
@@ -151,6 +167,40 @@ cdef double node_mix_prediction(CTSNodeStruct* node, double lp_estimator, double
                                  lp_child + node[0]._log_split_prob)
     cdef double denominator = log_add(node[0]._log_stay_prob,
                                    node[0]._log_split_prob)
+
+    return numerator - denominator
+
+cdef double node_recoding_mix_prediction(CTSNodeStruct* node, double lp_estimator, double lp_child):
+    cdef double log_alpha = node[0]._model[0].log_alpha
+    cdef double log_1_minus_alpha = node[0]._model[0].log_1_minus_alpha
+    cdef double log_stay_prob = node[0]._log_stay_prob
+    cdef double log_split_prob = node[0]._log_split_prob
+
+    # Avoid numerical issues with alpha = 1. This reverts to straight up
+    # weighting.
+    if log_1_minus_alpha == 0:
+        log_stay_prob += lp_estimator
+        log_split_prob += lp_child
+
+    else:
+        log_stay_prob = log_add(log_1_minus_alpha
+                                               + lp_estimator
+                                               + log_stay_prob,
+                                               log_alpha
+                                               + lp_child
+                                               + log_split_prob)
+
+        log_split_prob = log_add(log_1_minus_alpha
+                                                + lp_child
+                                                + log_split_prob,
+                                                log_alpha
+                                                + lp_estimator
+                                                + log_stay_prob)
+
+    cdef double numerator = log_add(lp_estimator + log_stay_prob,
+                                 lp_child + log_split_prob)
+    cdef double denominator = log_add(log_stay_prob,
+                                log_split_prob)
 
     return numerator - denominator
 
@@ -239,6 +289,10 @@ cdef double cts_log_prob(CTSStruct* cts, int[:] context, int symbol):
     #context is assumed to have correct length
     return node_log_prob(cts[0]._root, context, symbol)
 
+cdef double cts_log_recoding_prob(CTSStruct* cts, int[:] context, int symbol):
+    #context is assumed to have correct length
+    return node_log_recoding_prob(cts[0]._root, context, symbol)
+
 cdef cts_get_state(CTSStruct* ptr):
     return ptr[0]._time, ptr[0].context_length, ptr[0].alphabet_size, ptr[0].log_alpha, \
         ptr[0].log_1_minus_alpha, ptr[0].symbol_prior, node_get_state(ptr[0]._root)
@@ -285,15 +339,18 @@ cdef class CTSDensityModel:
     def __dealloc__(self):
         pass
 
-
-    def update(self, obs):
+    def pseudocount(self, obs):
         obs = resize(obs, (self.height, self.width), mode="constant", preserve_range=True)
         obs = np.floor((obs*self.num_bins)).astype(np.int32)
-        
-        log_prob, log_recoding_prob = self._update(obs)
-        return self.exploration_bonus(log_prob, log_recoding_prob)
-    
-    cpdef (double, double) _update(self, int[:, :] obs):
+
+        log_prob, log_recoding_prob = self._log_prob(obs)
+
+        recoding_prob = np.exp(log_recoding_prob)
+        prob_ratio = np.exp(log_recoding_prob - log_prob)
+
+        return (1. - recoding_prob) / max(prob_ratio - 1., 1e-10)
+
+    cpdef (double, double) _log_prob(self, int[:, :] obs):
         cdef int[:] context = np.array([0, 0, 0, 0], np.int32)
         cdef double log_prob = 0.0
         cdef double log_recoding_prob = 0.0
@@ -307,17 +364,32 @@ cdef class CTSDensityModel:
                 context[1] = obs[i-1, j-1] if i > 0 and j > 0 else 0
                 context[0] = obs[i-1, j+1] if i > 0 and j < self.width-1 else 0
 
-                log_prob += cts_update(&self.cts_factors[i][j], context, obs[i, j])
-                log_recoding_prob += cts_log_prob(&self.cts_factors[i][j], context, obs[i, j])
+                log_prob += cts_log_prob(&self.cts_factors[i][j], context, obs[i, j])
+                log_recoding_prob += cts_log_recoding_prob(&self.cts_factors[i][j], context, obs[i, j])
 
         return log_prob, log_recoding_prob
 
-    def exploration_bonus(self, log_prob, log_recoding_prob):
-        recoding_prob = np.exp(log_recoding_prob)
-        prob_ratio = np.exp(log_recoding_prob - log_prob)
+    def update(self, obs):
+        obs = resize(obs, (self.height, self.width), mode="constant", preserve_range=True)
+        obs = np.floor((obs*self.num_bins)).astype(np.int32)
 
-        pseudocount = (1 - recoding_prob) / np.maximum(prob_ratio - 1, 1e-10)
-        return self.beta / np.sqrt(pseudocount + .01)
+        self._update(obs)
+
+    cpdef void _update(self, int[:, :] obs):
+        cdef int[:] context = np.array([0, 0, 0, 0], np.int32)
+        cdef double log_prob = 0.0
+        cdef double log_recoding_prob = 0.0
+        cdef unsigned int i
+        cdef unsigned int j
+
+        for i in range(self.height):
+            for j in range(self.width):
+                context[3] = obs[i, j-1] if j > 0 else 0
+                context[2] = obs[i-1, j] if i > 0 else 0
+                context[1] = obs[i-1, j-1] if i > 0 and j > 0 else 0
+                context[0] = obs[i-1, j+1] if i > 0 and j < self.width-1 else 0
+
+                cts_update(&self.cts_factors[i][j], context, obs[i, j])
 
     def get_state(self):
         return self.num_bins, self.height, self.width, self.beta, [[
