@@ -28,7 +28,7 @@ def _build_q_network(registry, inputs, num_actions, config):
             score_var_out = layers.fully_connected(
                 score_var_out, num_outputs=hidden, activation_fn=tf.nn.relu)
         score_var = layers.fully_connected(
-            score_var_out, num_outputs=num_actions, activation_fn=None) + 1e-10
+            score_var_out, num_outputs=num_actions, activation_fn=tf.nn.relu) + 1e-10
 
     if dueling:
         with tf.variable_scope("state_value"):
@@ -62,7 +62,8 @@ def _build_action_network(
 
 
 def reduce_softmax(x, axis=None, temperature=1.):
-    return tf.reduce_sum(tf.nn.softmax(x * temperature, axis) * x, axis)
+    softmax_dist = tf.nn.softmax(x * tf.expand_dims(temperature, 1), axis)
+    return tf.reduce_sum(softmax_dist * x, axis)
 
 
 def _huber_loss(x, delta=1.0):
@@ -149,15 +150,15 @@ class ModelAndLoss(object):
             best_q = tf.reduce_max(self.q_tp1, 1, True)
             best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(best_a, num_actions), 1)
             best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(best_a, num_actions), 1)
-            subopt_q = tf.where(self.q_tp1 < best_q - config["gap_epsilon"], self.q_tp1, tf.reduce_min(self.q_tp1, 1, True))
+            subopt_q = tf.where(self.q_tp1 < best_q - config["gap_epsilon"], self.q_tp1, tf.tile(tf.reduce_min(self.q_tp1, 1, True), [1, num_actions]))
             second_best_a = tf.argmax(subopt_q, 1)
             second_best_q = tf.reduce_max(subopt_q, 1)
             second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(second_best_a, num_actions), 1)
             second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(second_best_a, num_actions), 1)
             gap_mean = tf.squeeze(best_q, 1) - second_best_q
             gap_var = best_q_var / best_q_cnt + second_best_q_var / second_best_q_cnt
-            beta = 2 * gap_mean / gap_var
-            q_tp1_best = reduce_softmax(self.q_tp1, 1, beta)
+            temperature = gap_var / (2 * gap_mean)
+            q_tp1_best = reduce_softmax(self.q_tp1, 1, temperature)
         q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
 
         # compute RHS of bellman equation
@@ -189,7 +190,7 @@ class DQNGraph(object):
         # Action Q network
         q_scope_name = TOWER_SCOPE_NAME + "/q_func"
         with tf.variable_scope(q_scope_name) as scope:
-            q_values = _build_q_network(
+            q_values, q_vars = _build_q_network(
                 registry, self.cur_observations, num_actions, config)
             q_func_vars = _scope_vars(scope.name)
 
@@ -214,11 +215,11 @@ class DQNGraph(object):
             tf.float32, [None], name="weight")
 
         def build_loss(
-                obs_t, act_t, rew_t, obs_tp1, done_mask, importance_weights):
+                obs_t, act_t, pseudocount, rew_t, obs_tp1, done_mask, importance_weights):
             return ModelAndLoss(
                 registry,
                 num_actions, config,
-                obs_t, act_t, rew_t, obs_tp1, done_mask, importance_weights)
+                obs_t, act_t, pseudocount, rew_t, obs_tp1, done_mask, importance_weights)
 
         self.loss_inputs = [
             ("obs", self.obs_t),
@@ -231,7 +232,7 @@ class DQNGraph(object):
 
         with tf.variable_scope(TOWER_SCOPE_NAME):
             loss_obj = build_loss(
-                self.obs_t, self.act_t, self.rew_t, self.obs_tp1,
+                self.obs_t, self.act_t, self.pseudocount, self.rew_t, self.obs_tp1,
                 self.done_mask, self.importance_weights)
 
         self.build_loss = build_loss
@@ -281,7 +282,7 @@ class DQNGraph(object):
     def compute_gradients(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,
             importance_weights):
-        pseudocount = self.density_model.get_pseudocount(obs_t)
+        pseudocount = self.density_model.get_pseudocount(obs_t[:, :, :, -1])
         td_err, grads = sess.run(
             [self.td_error, self.grads],
             feed_dict={
@@ -293,7 +294,7 @@ class DQNGraph(object):
                 self.done_mask: done_mask,
                 self.importance_weights: importance_weights
             })
-        self.density_model.update(obs_t, act_t)
+        self.density_model.update(obs_t[:, :, :, -1], act_t)
         return td_err, grads
 
     def compute_td_error(

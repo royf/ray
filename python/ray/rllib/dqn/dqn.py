@@ -31,6 +31,8 @@ DEFAULT_CONFIG = dict(
     model={},
     # Discount factor for the MDP
     gamma=0.99,
+    # Epsilon gap for SQL
+    gap_epsilon=0.1,
     # Arguments to pass to the env creator
     env_config={},
 

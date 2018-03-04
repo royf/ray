@@ -33,12 +33,12 @@ cdef double get_prior(char* prior_name, int alphabet_size):
 
 cdef double log_add(double log_x, double log_y):
     """Given log x and log y, returns log(x + y)."""
-    # Swap variables so log_y is larger.
-    if log_x > log_y:
+    # Swap variables so log_x is larger.
+    if log_x < log_y:
         log_x, log_y = log_y, log_x
 
     cdef double delta = log_y - log_x
-    return log(1 + exp(delta)) + log_x if delta <= 50.0 else log_y
+    return log(1 + exp(delta)) + log_x  # if delta <= 50.0 else log_y
 
 
 cdef struct EstimatorStruct:
@@ -339,21 +339,15 @@ cdef class CTSDensityModel:
     def __dealloc__(self):
         pass
 
-    def pseudocount(self, obs):
+    def get_log_prob(self, obs):
         obs = resize(obs, (self.height, self.width), mode="constant", preserve_range=True)
         obs = np.floor((obs*self.num_bins)).astype(np.int32)
 
-        log_prob, log_recoding_prob = self._log_prob(obs)
+        return self._log_prob(obs)
 
-        recoding_prob = np.exp(log_recoding_prob)
-        prob_ratio = np.exp(log_recoding_prob - log_prob)
-
-        return (1. - recoding_prob) / max(prob_ratio - 1., 1e-10)
-
-    cpdef (double, double) _log_prob(self, int[:, :] obs):
+    cpdef double _log_prob(self, int[:, :] obs):
         cdef int[:] context = np.array([0, 0, 0, 0], np.int32)
         cdef double log_prob = 0.0
-        cdef double log_recoding_prob = 0.0
         cdef unsigned int i
         cdef unsigned int j
 
@@ -365,19 +359,17 @@ cdef class CTSDensityModel:
                 context[0] = obs[i-1, j+1] if i > 0 and j < self.width-1 else 0
 
                 log_prob += cts_log_prob(&self.cts_factors[i][j], context, obs[i, j])
-                log_recoding_prob += cts_log_recoding_prob(&self.cts_factors[i][j], context, obs[i, j])
 
-        return log_prob, log_recoding_prob
+        return log_prob
 
-    def update(self, obs):
+    def get_log_recoding_prob(self, obs):
         obs = resize(obs, (self.height, self.width), mode="constant", preserve_range=True)
         obs = np.floor((obs*self.num_bins)).astype(np.int32)
 
-        self._update(obs)
+        return self._log_recoding_prob(obs)
 
-    cpdef void _update(self, int[:, :] obs):
+    cpdef double _log_recoding_prob(self, int[:, :] obs):
         cdef int[:] context = np.array([0, 0, 0, 0], np.int32)
-        cdef double log_prob = 0.0
         cdef double log_recoding_prob = 0.0
         cdef unsigned int i
         cdef unsigned int j
@@ -389,7 +381,32 @@ cdef class CTSDensityModel:
                 context[1] = obs[i-1, j-1] if i > 0 and j > 0 else 0
                 context[0] = obs[i-1, j+1] if i > 0 and j < self.width-1 else 0
 
-                cts_update(&self.cts_factors[i][j], context, obs[i, j])
+                log_recoding_prob += cts_log_recoding_prob(&self.cts_factors[i][j], context, obs[i, j])
+
+        return log_recoding_prob
+
+    def update(self, obs):
+        obs = resize(obs, (self.height, self.width), mode="constant", preserve_range=True)
+        obs = np.floor((obs*self.num_bins)).astype(np.int32)
+
+        return self._update(obs)
+
+    cpdef double _update(self, int[:, :] obs):
+        cdef int[:] context = np.array([0, 0, 0, 0], np.int32)
+        cdef double log_prob = 0.0
+        cdef unsigned int i
+        cdef unsigned int j
+
+        for i in range(self.height):
+            for j in range(self.width):
+                context[3] = obs[i, j-1] if j > 0 else 0
+                context[2] = obs[i-1, j] if i > 0 else 0
+                context[1] = obs[i-1, j-1] if i > 0 and j > 0 else 0
+                context[0] = obs[i-1, j+1] if i > 0 and j < self.width-1 else 0
+
+                log_prob += cts_update(&self.cts_factors[i][j], context, obs[i, j])
+
+        return log_prob
 
     def get_state(self):
         return self.num_bins, self.height, self.width, self.beta, [[
