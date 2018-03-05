@@ -68,7 +68,7 @@ def reduce_softmax(x, axis=None, temperature=1.):
 
 def log_partition(x, axis=None, temperature=1., log_prior=None):
     if log_prior is None:
-        log_prior = tf.constant(-tf.log(tf.shape(x)[axis]), x.dtype, x.shape)
+        log_prior = -tf.log(tf.cast(tf.shape(x)[axis], x.dtype))
     return tf.reduce_logsumexp(log_prior + x / temperature, axis, True) * temperature
 
 
