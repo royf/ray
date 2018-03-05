@@ -100,6 +100,7 @@ class DQNReplayEvaluator(DQNEvaluator):
         if self.config["prioritized_replay"]:
             new_priorities = (
                 np.abs(td_errors) + self.config["prioritized_replay_eps"])
+            print("priorities:", new_priorities.min(), new_priorities.max())
             self.replay_buffer.update_priorities(
                 samples["batch_indexes"], new_priorities)
             self.samples_to_prioritize = None

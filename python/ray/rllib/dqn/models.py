@@ -28,7 +28,7 @@ def _build_q_network(registry, inputs, num_actions, config):
             score_var_out = layers.fully_connected(
                 score_var_out, num_outputs=hidden, activation_fn=tf.nn.relu)
         score_var = layers.fully_connected(
-            score_var_out, num_outputs=num_actions, activation_fn=tf.nn.relu) + 1e-10
+            score_var_out, num_outputs=num_actions, activation_fn=tf.nn.softplus) + 1e-6
 
     if dueling:
         with tf.variable_scope("state_value"):
@@ -157,13 +157,13 @@ class ModelAndLoss(object):
             self.best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.best_a, num_actions), 1)
             self.best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.best_a, num_actions), 1)
             self.subopt_q = tf.where(self.q_tp1 < self.best_q - config["gap_epsilon"], self.q_tp1,
-                                     tf.tile(tf.reduce_min(self.q_tp1, 1, True), [1, num_actions]))
+                                     tf.tile(tf.minimum(tf.reduce_min(self.q_tp1, 1, True), self.best_q - config["gap_epsilon"]), [1, num_actions]))
             self.second_best_a = tf.argmax(self.subopt_q, 1)
             self.second_best_q = tf.reduce_max(self.subopt_q, 1)
             self.second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.second_best_a, num_actions), 1)
             self.second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.second_best_a, num_actions), 1)
             self.gap_mean = tf.squeeze(self.best_q, 1) - self.second_best_q
-            self.gap_var = self.best_q_var / self.best_q_cnt + self.second_best_q_var / self.second_best_q_cnt
+            self.gap_var = (self.best_q_var / self.best_q_cnt) + (self.second_best_q_var / self.second_best_q_cnt)
             self.temperature = self.gap_var / (2 * self.gap_mean)
             self.q_tp1_best = log_partition(self.q_tp1, 1, tf.expand_dims(self.temperature, 1))
         q_tp1_best_masked = (1.0 - done_mask) * self.q_tp1_best
@@ -320,7 +320,7 @@ class DQNGraph(object):
                 'gap_var': self.gap_var,
                 'temperature': self.temperature,
                 'q_tp1_best': self.q_tp1_best,
-                'tf_error': self.td_error,
+                'td_error': self.td_error,
                 'grads': self.grads},
             feed_dict={
                 self.obs_t: obs_t,
@@ -333,7 +333,7 @@ class DQNGraph(object):
             })
         print(results)
         self.density_model.update(obs_t[:, :, :, -1], act_t)
-        return results['td_err'], results['grads']
+        return results['td_error'], results['grads']
 
     def compute_td_error(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,
