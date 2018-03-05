@@ -66,10 +66,10 @@ def reduce_softmax(x, axis=None, temperature=1.):
     return tf.reduce_sum(softmax_dist * x, axis)
 
 
-def log_partition(x, axis=None, temperature=1., log_prior=None):
+def log_partition(x, axis=None, keep_dims=False, temperature=1., log_prior=None):
     if log_prior is None:
         log_prior = -tf.log(tf.cast(tf.shape(x)[axis], x.dtype))
-    return tf.reduce_logsumexp(log_prior + x / temperature, axis, True) * temperature
+    return tf.reduce_logsumexp(log_prior + x / temperature, axis, keep_dims) * temperature
 
 
 def _huber_loss(x, delta=1.0):
@@ -164,7 +164,7 @@ class ModelAndLoss(object):
             self.second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.second_best_a, num_actions), 1)
             self.gap_mean = tf.squeeze(self.best_q, 1) - self.second_best_q
             self.gap_var = (self.best_q_var / self.best_q_cnt) + (self.second_best_q_var / self.second_best_q_cnt)
-            self.temperature = self.gap_var / (2 * self.gap_mean)
+            self.temperature = tf.maximum(self.gap_var / (2 * self.gap_mean), 1e5)
             self.q_tp1_best = log_partition(self.q_tp1, 1, tf.expand_dims(self.temperature, 1))
         q_tp1_best_masked = (1.0 - done_mask) * self.q_tp1_best
 
