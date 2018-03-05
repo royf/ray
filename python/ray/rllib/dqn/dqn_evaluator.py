@@ -169,7 +169,7 @@ class DQNEvaluator(TFMultiGPUSupport):
         exploration = self.exploration.value(self.global_timestep)
         gap_mean = np.mean(self.gap_means)
         gap_var = np.mean(self.gap_vars)
-        temperature = np.mean(self.gap_temperatures)
+        temperature = np.mean(self.temperatures)
         self.gap_means = []
         self.gap_vars = []
         self.temperatures = []

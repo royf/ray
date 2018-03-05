@@ -2,20 +2,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import pickle
 import os
+import pickle
 
 import numpy as np
-import tensorflow as tf
-
 import ray
+import tensorflow as tf
+from ray.rllib.agent import Agent
 from ray.rllib.dqn.dqn_evaluator import DQNEvaluator
 from ray.rllib.dqn.dqn_replay_evaluator import DQNReplayEvaluator
 from ray.rllib.optimizers import AsyncOptimizer, LocalMultiGPUOptimizer, \
     LocalSyncOptimizer
-from ray.rllib.agent import Agent
 from ray.tune.result import TrainingResult
-
 
 DEFAULT_CONFIG = dict(
     # === Model ===
@@ -194,14 +192,14 @@ class DQNAgent(Agent):
             exploration = s["exploration"]
 
         result = TrainingResult(
-            gap_mean=gap_mean,
-            gap_var=gap_var,
-            temperature=temperature,
             episode_reward_mean=mean_100ep_reward,
             episode_len_mean=mean_100ep_length,
             episodes_total=num_episodes,
             timesteps_this_iter=self.global_timestep - start_timestep,
             info=dict({
+                "gap_mean": gap_mean,
+                "gap_var": gap_var,
+                "temperature": temperature,
                 "exploration": exploration,
                 "num_target_updates": self.num_target_updates,
             }, **self.optimizer.stats()))
