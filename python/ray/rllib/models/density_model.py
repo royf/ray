@@ -23,13 +23,13 @@ class DensityModel(object):
                     log_prob = self.models[action].get_log_prob(observation) + np.log(self.action_count[action]) - log_total_count
                     log_recoding_prob = self.models[action].get_log_recoding_prob(observation) + np.log(self.action_count[action] + 1) - log_total_count_p1
                     recoding_prob = np.exp(log_recoding_prob)
-                    prob_ratio = np.exp(min(max(log_recoding_prob - log_prob, 1e-12), np.log(1e12)))
+                    prob_ratio = np.exp(min(max(log_recoding_prob - log_prob, 1e-10), np.log(1e10)))
                     pseudocount[i][action] = (1. - recoding_prob) / (prob_ratio - 1.)
             else:
                 log_prob = self.model.get_log_prob(observation)
                 log_recoding_prob = self.model.get_log_recoding_prob(observation)
                 recoding_prob = np.exp(log_recoding_prob)
-                prob_ratio = np.exp(min(max(log_recoding_prob - log_prob, 1e-12), np.log(1e12)))
+                prob_ratio = np.exp(min(max(log_recoding_prob - log_prob, 1e-10), np.log(1e10)))
                 pseudocount[i] = (1. - recoding_prob) / (prob_ratio - 1.)
         return pseudocount
 
