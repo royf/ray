@@ -125,9 +125,6 @@ class DQNEvaluator(TFMultiGPUSupport):
         results = self.dqn_graph.compute_gradients(
             self.sess, samples["obs"], samples["actions"], samples["rewards"],
             samples["new_obs"], samples["dones"], samples["weights"])
-        self.gap_means.append(results['gap_mean'])
-        self.gap_vars.append(results['gap_var'])
-        self.temperatures.append(results['temperature'])
         return results['grads']
 
     def apply_gradients(self, grads):

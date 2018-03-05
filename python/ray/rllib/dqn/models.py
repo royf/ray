@@ -164,7 +164,7 @@ class ModelAndLoss(object):
             self.second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.second_best_a, num_actions), 1)
             self.gap_mean = tf.squeeze(self.best_q, 1) - self.second_best_q
             self.gap_var = (self.best_q_var / self.best_q_cnt) + (self.second_best_q_var / self.second_best_q_cnt)
-            self.temperature = tf.minimum(self.gap_var / (2 * self.gap_mean), 1e5)
+            self.temperature = tf.minimum(self.gap_var / (2 * self.gap_mean), 1e3)
             self.q_tp1_best = log_partition(self.q_tp1, self.temperature)
         q_tp1_best_masked = (1.0 - done_mask) * self.q_tp1_best
 
@@ -331,10 +331,10 @@ class DQNGraph(object):
                 self.done_mask: done_mask,
                 self.importance_weights: importance_weights
             })
-        print(results)
-        print(results['td_error'].shape)
+        print_results = {k: v for k, v in results.items() if k in ['gap_mean', 'gap_var', 'temperature']}
+        print(print_results)
         self.density_model.update(obs_t[:, :, :, -1], act_t)
-        return results['td_error'], results['grads']
+        return results
 
     def compute_td_error(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,

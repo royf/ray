@@ -94,17 +94,19 @@ class DQNReplayEvaluator(DQNEvaluator):
         return batch
 
     def compute_gradients(self, samples):
-        td_errors, grad = self.dqn_graph.compute_gradients(
+        results = self.dqn_graph.compute_gradients(
             self.sess, samples["obs"], samples["actions"], samples["rewards"],
             samples["new_obs"], samples["dones"], samples["weights"])
+        self.gap_means.append(results['gap_mean'])
+        self.gap_vars.append(results['gap_var'])
+        self.temperatures.append(results['temperature'])
         if self.config["prioritized_replay"]:
             new_priorities = (
-                np.abs(td_errors) + self.config["prioritized_replay_eps"])
-            print("priorities:", new_priorities.shape, new_priorities.min(), new_priorities.max())
+                np.abs(results['td_error']) + self.config["prioritized_replay_eps"])
             self.replay_buffer.update_priorities(
                 samples["batch_indexes"], new_priorities)
             self.samples_to_prioritize = None
-        return grad
+        return results['grads']
 
     def _update_priorities_if_needed(self):
         """Manually updates replay buffer priorities on the last batch.
