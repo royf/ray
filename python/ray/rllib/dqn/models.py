@@ -62,8 +62,14 @@ def _build_action_network(
 
 
 def reduce_softmax(x, axis=None, temperature=1.):
-    softmax_dist = tf.nn.softmax(x * tf.expand_dims(temperature, 1), axis)
+    softmax_dist = tf.nn.softmax(x / tf.expand_dims(temperature, 1), axis)
     return tf.reduce_sum(softmax_dist * x, axis)
+
+
+def log_partition(x, axis=None, temperature=1., log_prior=None):
+    if log_prior is None:
+        log_prior = tf.constant(-tf.log(tf.shape(x)[axis]), x.dtype, x.shape)
+    return tf.reduce_logsumexp(log_prior + x / temperature, axis, True) * temperature
 
 
 def _huber_loss(x, delta=1.0):
@@ -146,20 +152,21 @@ class ModelAndLoss(object):
                 self.q_tp1 * tf.one_hot(
                     q_tp1_best_using_online_net, num_actions), 1)
         else:
-            best_a = tf.argmax(self.q_tp1, 1)
-            best_q = tf.reduce_max(self.q_tp1, 1, True)
-            best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(best_a, num_actions), 1)
-            best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(best_a, num_actions), 1)
-            subopt_q = tf.where(self.q_tp1 < best_q - config["gap_epsilon"], self.q_tp1, tf.tile(tf.reduce_min(self.q_tp1, 1, True), [1, num_actions]))
-            second_best_a = tf.argmax(subopt_q, 1)
-            second_best_q = tf.reduce_max(subopt_q, 1)
-            second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(second_best_a, num_actions), 1)
-            second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(second_best_a, num_actions), 1)
-            gap_mean = tf.squeeze(best_q, 1) - second_best_q
-            gap_var = best_q_var / best_q_cnt + second_best_q_var / second_best_q_cnt
-            temperature = gap_var / (2 * gap_mean)
-            q_tp1_best = reduce_softmax(self.q_tp1, 1, temperature)
-        q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
+            self.best_a = tf.argmax(self.q_tp1, 1)
+            self.best_q = tf.reduce_max(self.q_tp1, 1, True)
+            self.best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.best_a, num_actions), 1)
+            self.best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.best_a, num_actions), 1)
+            self.subopt_q = tf.where(self.q_tp1 < self.best_q - config["gap_epsilon"], self.q_tp1,
+                                     tf.tile(tf.reduce_min(self.q_tp1, 1, True), [1, num_actions]))
+            self.second_best_a = tf.argmax(self.subopt_q, 1)
+            self.second_best_q = tf.reduce_max(self.subopt_q, 1)
+            self.second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.second_best_a, num_actions), 1)
+            self.second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.second_best_a, num_actions), 1)
+            self.gap_mean = tf.squeeze(self.best_q, 1) - self.second_best_q
+            self.gap_var = self.best_q_var / self.best_q_cnt + self.second_best_q_var / self.second_best_q_cnt
+            self.temperature = self.gap_var / (2 * self.gap_mean)
+            self.q_tp1_best = log_partition(self.q_tp1, 1, tf.expand_dims(self.temperature, 1))
+        q_tp1_best_masked = (1.0 - done_mask) * self.q_tp1_best
 
         # compute RHS of bellman equation
         q_t_selected_target = (
@@ -241,6 +248,19 @@ class DQNGraph(object):
         target_q_func_vars = loss_obj.target_q_func_vars
         self.q_t = loss_obj.q_t
         self.q_tp1 = loss_obj.q_tp1
+        self.best_a = loss_obj.best_a
+        self.best_q = loss_obj.best_q
+        self.best_q_var = loss_obj.best_q_var
+        self.best_q_cnt = loss_obj.best_q_cnt
+        self.subopt_q = loss_obj.subopt_q
+        self.second_best_a = loss_obj.second_best_a
+        self.second_best_q = loss_obj.second_best_q
+        self.second_best_q_var = loss_obj.second_best_q_var
+        self.second_best_q_cnt = loss_obj.second_best_q_cnt
+        self.gap_mean = loss_obj.gap_mean
+        self.gap_var = loss_obj.gap_var
+        self.temperature = loss_obj.temperature
+        self.q_tp1_best = loss_obj.q_tp1_best
         self.td_error = loss_obj.td_error
 
         # compute optimization op (potentially with gradient clipping)
@@ -283,8 +303,25 @@ class DQNGraph(object):
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,
             importance_weights):
         pseudocount = self.density_model.get_pseudocount(obs_t[:, :, :, -1])
-        td_err, grads = sess.run(
-            [self.td_error, self.grads],
+        results = sess.run(
+            {
+                'q_t': self.q_t,
+                'q_tp1': self.q_tp1,
+                'best_a': self.best_a,
+                'best_q': self.best_q,
+                'best_q_var': self.best_q_var,
+                'best_q_cnt': self.best_q_cnt,
+                'subopt_q': self.subopt_q,
+                'second_best_a': self.second_best_a,
+                'second_best_q': self.second_best_q,
+                'second_best_q_var': self.second_best_q_var,
+                'second_best_q_cnt': self.second_best_q_cnt,
+                'gap_mean': self.gap_mean,
+                'gap_var': self.gap_var,
+                'temperature': self.temperature,
+                'q_tp1_best': self.q_tp1_best,
+                'tf_error': self.td_error,
+                'grads': self.grads},
             feed_dict={
                 self.obs_t: obs_t,
                 self.act_t: act_t,
@@ -294,8 +331,9 @@ class DQNGraph(object):
                 self.done_mask: done_mask,
                 self.importance_weights: importance_weights
             })
+        print(results)
         self.density_model.update(obs_t[:, :, :, -1], act_t)
-        return td_err, grads
+        return results['td_err'], results['grads']
 
     def compute_td_error(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,

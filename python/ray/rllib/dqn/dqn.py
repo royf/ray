@@ -176,18 +176,27 @@ class DQNAgent(Agent):
                 self.last_target_update_ts = self.global_timestep
                 self.num_target_updates += 1
 
+        gap_mean = 0.
+        gap_var = 0.
+        temperature = 0.
         mean_100ep_reward = 0.0
         mean_100ep_length = 0.0
         num_episodes = 0
         exploration = -1
 
         for s in stats:
+            gap_mean += s["gap_mean"] / len(stats)
+            gap_var += s["gap_var"] / len(stats)
+            temperature += s["temperature"] / len(stats)
             mean_100ep_reward += s["mean_100ep_reward"] / len(stats)
             mean_100ep_length += s["mean_100ep_length"] / len(stats)
             num_episodes += s["num_episodes"]
             exploration = s["exploration"]
 
         result = TrainingResult(
+            gap_mean=gap_mean,
+            gap_var=gap_var,
+            temperature=temperature,
             episode_reward_mean=mean_100ep_reward,
             episode_len_mean=mean_100ep_length,
             episodes_total=num_episodes,

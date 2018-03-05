@@ -82,6 +82,9 @@ class DQNEvaluator(TFMultiGPUSupport):
 
         self.episode_rewards = [0.0]
         self.episode_lengths = [0.0]
+        self.gap_means = []
+        self.gap_vars = []
+        self.temperatures = []
         self.saved_mean_reward = None
 
         self.obs = self.env.reset()
@@ -119,10 +122,13 @@ class DQNEvaluator(TFMultiGPUSupport):
         return batch
 
     def compute_gradients(self, samples):
-        _, grad = self.dqn_graph.compute_gradients(
+        results = self.dqn_graph.compute_gradients(
             self.sess, samples["obs"], samples["actions"], samples["rewards"],
             samples["new_obs"], samples["dones"], samples["weights"])
-        return grad
+        self.gap_means.append(results['gap_mean'])
+        self.gap_vars.append(results['gap_var'])
+        self.temperatures.append(results['temperature'])
+        return results['grads']
 
     def apply_gradients(self, grads):
         self.dqn_graph.apply_gradients(self.sess, grads)
@@ -161,7 +167,16 @@ class DQNEvaluator(TFMultiGPUSupport):
         mean_100ep_reward = round(np.mean(self.episode_rewards[-n:-1]), 5)
         mean_100ep_length = round(np.mean(self.episode_lengths[-n:-1]), 5)
         exploration = self.exploration.value(self.global_timestep)
+        gap_mean = np.mean(self.gap_means)
+        gap_var = np.mean(self.gap_vars)
+        temperature = np.mean(self.gap_temperatures)
+        self.gap_means = []
+        self.gap_vars = []
+        self.temperatures = []
         return {
+            "gap_mean": gap_mean,
+            "gap_var": gap_var,
+            "temperature": temperature,
             "mean_100ep_reward": mean_100ep_reward,
             "mean_100ep_length": mean_100ep_length,
             "num_episodes": len(self.episode_rewards),
