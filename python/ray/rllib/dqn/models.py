@@ -332,6 +332,7 @@ class DQNGraph(object):
                 self.importance_weights: importance_weights
             })
         print(results)
+        print(results['td_error'].shape)
         self.density_model.update(obs_t[:, :, :, -1], act_t)
         return results['td_error'], results['grads']
 

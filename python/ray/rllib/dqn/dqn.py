@@ -199,7 +199,7 @@ class DQNAgent(Agent):
             info=dict({
                 "gap_mean": gap_mean,
                 "gap_var": gap_var,
-                "temperature": temperature,
+                "inv_temperature": 1. / temperature,
                 "exploration": exploration,
                 "num_target_updates": self.num_target_updates,
             }, **self.optimizer.stats()))
