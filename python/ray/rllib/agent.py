@@ -234,6 +234,9 @@ def get_agent_class(alg):
     elif alg == "A3C":
         from ray.rllib import a3c
         return a3c.A3CAgent
+    elif alg == "ASQ":
+        from ray.rllib import asq
+        return asq.ASQAgent
     elif alg == "BC":
         from ray.rllib import bc
         return bc.BCAgent
