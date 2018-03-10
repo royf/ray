@@ -69,6 +69,14 @@ DEFAULT_CONFIG = dict(
         "inter_op_parallelism_threads": 1,
         "intra_op_parallelism_threads": 1,
     },
+    # Arguments to pass to tensorflow
+    tf_remote_session_args={
+        "device_count": {"CPU": 1, "GPU": 1},
+        "log_device_placement": False,
+        "allow_soft_placement": True,
+        "inter_op_parallelism_threads": 1,
+        "intra_op_parallelism_threads": 1,
+    },
     # Number of ensemble models
     num_models=1,
 )
@@ -80,7 +88,7 @@ class ASQAgent(Agent):
 
     def _init(self):
         self.local_evaluator = ASQEvaluator(self.registry, self.env_creator, self.config)
-        remote_cls = ray.remote(num_cpus=1, num_gpus=0)(ASQEvaluator)
+        remote_cls = ray.remote(num_cpus=1, num_gpus=1)(ASQEvaluator)
         self.remote_evaluators = [
             remote_cls.remote(self.registry, self.env_creator, self.config, model_idx)
             for model_idx in range(self.config["num_models"])]

@@ -21,7 +21,10 @@ class ASQEvaluator(Evaluator):
         self.env = wrap_dqn(registry, self.env, self.config["model"])
         if not isinstance(self.env.action_space, Discrete):
             raise UnsupportedSpaceException("Action space {} is not supported for ASQ.".format(self.env.action_space))
-        tf_config = tf.ConfigProto(**config["tf_session_args"])
+        if model_idx is None:
+            tf_config = tf.ConfigProto(**config["tf_session_args"])
+        else:
+            tf_config = tf.ConfigProto(**config["tf_remote_session_args"])
         self.sess = tf.Session(config=tf_config)
         self.asq_graph = models.ASQGraph(self.env, config, config["num_models"], model_idx is not None)
         self.sess.run(tf.global_variables_initializer())
