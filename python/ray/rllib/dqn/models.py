@@ -158,6 +158,7 @@ class ModelAndLoss(object):
             self.best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.best_a, num_actions), 1)
             self.subopt_q = tf.where(self.q_tp1 < self.best_q - config["gap_epsilon"], self.q_tp1,
                                      tf.tile(tf.minimum(tf.reduce_min(self.q_tp1, 1, True), self.best_q - config["gap_epsilon"]), [1, num_actions]))
+            # TODO: second best should be by order of gap_mean / gap_var
             self.second_best_a = tf.argmax(self.subopt_q, 1)
             self.second_best_q = tf.reduce_max(self.subopt_q, 1)
             self.second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.second_best_a, num_actions), 1)
