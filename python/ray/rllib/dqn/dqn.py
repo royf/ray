@@ -2,10 +2,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import pickle
+import os
 
 import numpy as np
+import tensorflow as tf
+
 import ray
 from ray.rllib import optimizers
 from ray.rllib.dqn.dqn_evaluator import DQNEvaluator
@@ -16,7 +18,7 @@ from ray.tune.result import TrainingResult
 OPTIMIZER_SHARED_CONFIGS = [
     "buffer_size", "prioritized_replay", "prioritized_replay_alpha",
     "prioritized_replay_beta", "prioritized_replay_eps", "sample_batch_size",
-    "train_batch_size", "learning_starts"]
+    "train_batch_size", "learning_starts", "clip_rewards"]
 
 DEFAULT_CONFIG = dict(
     # === Model ===
@@ -106,6 +108,8 @@ DEFAULT_CONFIG = dict(
     num_workers=0,
     # Whether to allocate GPUs for workers (if > 0).
     num_gpus_per_worker=0,
+    # Whether to reserve CPUs for workers (if not None).
+    num_cpus_per_worker=None,
     # Optimizer class to use.
     optimizer_class="LocalSyncReplayOptimizer",
     # Config to pass to the optimizer.
@@ -126,7 +130,8 @@ class DQNAgent(Agent):
         self.local_evaluator = DQNEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, 0)
         remote_cls = ray.remote(
-            num_cpus=1, num_gpus=self.config["num_gpus_per_worker"])(
+            num_cpus=self.config["num_cpus_per_worker"],
+            num_gpus=self.config["num_gpus_per_worker"])(
             DQNEvaluator)
         self.remote_evaluators = [
             remote_cls.remote(
