@@ -36,7 +36,7 @@ DEFAULT_CONFIG = dict(
     # # Final value of random action probability
     exploration_final_eps=0.01,
     # How many steps to sample before learning starts
-    learning_starts=10000,
+    learning_starts=1000,
     # Alpha parameter for prioritized replay buffer
     prioritized_replay_alpha=0.6,
     # Initial value of beta for prioritized replay buffer
@@ -45,6 +45,10 @@ DEFAULT_CONFIG = dict(
     prioritized_replay_timesteps=2000000,
     # Epsilon to add to the TD errors when updating priorities.
     prioritized_replay_eps=1e-6,
+    # Whether to clip rewards to [-1, 1] prior to adding to the replay buffer.
+    clip_rewards=True,
+    # Whether to start with random actions instead of noops.
+    random_starts=True,
     # Size of the replay buffer
     buffer_size=50000,
     # If True prioritized replay buffer will be used
@@ -52,11 +56,11 @@ DEFAULT_CONFIG = dict(
     # Learning rate for adam optimizer
     learning_rate=1e-4,
     # Update the replay buffer with this many samples at once
-    sample_rollout_steps=4,
+    sample_rollout_steps=1,
     # Size of a batched sampled from replay buffer for training
     sample_batch_size=32,
     # If not None, clip gradients during optimization at this value
-    grad_norm_clipping=10,
+    grad_norm_clipping=40,
     # Arguments to pass to the rllib optimizer
     optimizer={},
     # Smooth the current average reward over this many previous episodes
@@ -66,6 +70,9 @@ DEFAULT_CONFIG = dict(
         "device_count": {"CPU": 1},
         "log_device_placement": False,
         "allow_soft_placement": True,
+        "gpu_options": {
+            "allow_growth": True
+        },
         "inter_op_parallelism_threads": 1,
         "intra_op_parallelism_threads": 1,
     },

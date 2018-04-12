@@ -3,11 +3,11 @@ from __future__ import division
 from __future__ import print_function
 
 import ray
-from ray.rllib.optimizers.optimizer import Optimizer
+from ray.rllib.optimizers.policy_optimizer import PolicyOptimizer
 from ray.rllib.utils.timer import TimerStat
 
 
-class EnsembleOptimizer(Optimizer):
+class EnsembleOptimizer(PolicyOptimizer):
     def _init(self):
         self.step_timer = TimerStat()
         self.sync_timer = TimerStat()

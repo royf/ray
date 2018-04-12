@@ -9,16 +9,16 @@ from ray.rllib.asq import models
 from ray.rllib.dqn.common.schedules import LinearSchedule
 from ray.rllib.dqn.common.wrappers import wrap_dqn
 from ray.rllib.dqn.replay_buffer import PrioritizedReplayBuffer, ReplayBuffer
-from ray.rllib.optimizers import Evaluator, SampleBatch
+from ray.rllib.optimizers import PolicyEvaluator, SampleBatch
 from ray.rllib.utils.error import UnsupportedSpaceException
 
 
-class ASQEvaluator(Evaluator):
+class ASQEvaluator(PolicyEvaluator):
     def __init__(self, registry, env_creator, config, model_idx=None):
         self.config = config
         self.model_idx = model_idx
         self.env = env_creator(self.config["env_config"])
-        self.env = wrap_dqn(registry, self.env, self.config["model"])
+        self.env = wrap_dqn(registry, self.env, self.config["model"], self.config["random_starts"])
         if not isinstance(self.env.action_space, Discrete):
             raise UnsupportedSpaceException("Action space {} is not supported for ASQ.".format(self.env.action_space))
         if model_idx is None:
@@ -37,7 +37,8 @@ class ASQEvaluator(Evaluator):
             if config["prioritized_replay"]:
                 self.replay_buffer = PrioritizedReplayBuffer(
                     config["buffer_size"],
-                    alpha=config["prioritized_replay_alpha"])
+                    alpha=config["prioritized_replay_alpha"],
+                    clip_rewards=config["clip_rewards"])
                 self.prioritized_replay_beta_schedule = LinearSchedule(
                     config["prioritized_replay_timesteps"],
                     initial_p=config["prioritized_replay_beta0"],
