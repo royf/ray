@@ -20,11 +20,11 @@ import setuptools.command.build_ext as _build_ext
 ray_files = [
     "ray/core/src/common/thirdparty/redis/src/redis-server",
     "ray/core/src/common/redis_module/libray_redis_module.so",
-    "ray/core/src/plasma/plasma_store",
-    "ray/core/src/plasma/plasma_manager",
+    "ray/core/src/plasma/plasma_store", "ray/core/src/plasma/plasma_manager",
     "ray/core/src/local_scheduler/local_scheduler",
     "ray/core/src/local_scheduler/liblocal_scheduler_library.so",
     "ray/core/src/global_scheduler/global_scheduler",
+    "ray/core/src/ray/raylet/raylet_monitor", "ray/core/src/ray/raylet/raylet",
     "ray/WebUI.ipynb"
 ]
 
@@ -35,14 +35,14 @@ ray_ui_files = [
     "ray/core/src/catapult_files/trace_viewer_full.html"
 ]
 
-ray_autoscaler_files = [
-    "ray/autoscaler/aws/example-full.yaml"
-]
+ray_autoscaler_files = ["ray/autoscaler/aws/example-full.yaml"]
 
 if "RAY_USE_NEW_GCS" in os.environ and os.environ["RAY_USE_NEW_GCS"] == "on":
-    ray_files += ["ray/core/src/credis/build/src/libmember.so",
-                  "ray/core/src/credis/build/src/libmaster.so",
-                  "ray/core/src/credis/redis/src/redis-server"]
+    ray_files += [
+        "ray/core/src/credis/build/src/libmember.so",
+        "ray/core/src/credis/build/src/libmaster.so",
+        "ray/core/src/credis/redis/src/redis-server"
+    ]
 
 # The UI files are mandatory if the INCLUDE_UI environment variable equals 1.
 # Otherwise, they are optional.
@@ -54,9 +54,8 @@ else:
 optional_ray_files += ray_autoscaler_files
 
 extras = {
-    "rllib": [
-        "tensorflow", "pyyaml", "gym[atari]", "opencv-python",
-        "python-snappy", "scipy"]
+    "rllib":
+    ["tensorflow", "pyyaml", "gym[atari]", "opencv-python", "lz4", "scipy"]
 }
 
 
@@ -75,8 +74,9 @@ class build_ext(_build_ext.build_ext, object):
         pyarrow_files = [
             os.path.join("ray/pyarrow_files/pyarrow", filename)
             for filename in os.listdir("./ray/pyarrow_files/pyarrow")
-            if not os.path.isdir(os.path.join("ray/pyarrow_files/pyarrow",
-                                              filename))]
+            if not os.path.isdir(
+                os.path.join("ray/pyarrow_files/pyarrow", filename))
+        ]
 
         files_to_include = ray_files + pyarrow_files
 
@@ -86,8 +86,8 @@ class build_ext(_build_ext.build_ext, object):
         generated_python_directory = "ray/core/generated"
         for filename in os.listdir(generated_python_directory):
             if filename[-3:] == ".py":
-                self.move_file(os.path.join(generated_python_directory,
-                                            filename))
+                self.move_file(
+                    os.path.join(generated_python_directory, filename))
 
         # Try to copy over the optional files.
         for filename in optional_ray_files:
@@ -120,29 +120,31 @@ extensions = [
     Extension('ray.rllib.models.fast_cts', sources=['ray/rllib/models/fast_cts.pyx'], include_dirs=[numpy.get_include()])
 ]
 
-
-setup(name="ray",
-      # The version string is also in __init__.py. TODO(pcm): Fix this.
-      version="0.4.0",
-      packages=find_packages(),
-      cmdclass={"build_ext": build_ext},
-      # The BinaryDistribution argument triggers build_ext.
-      distclass=BinaryDistribution,
-      install_requires=["numpy",
-                        "funcsigs",
-                        "click",
-                        "colorama",
-                        "psutil",
-                        "pytest",
-                        "pyyaml",
-                        "redis",
-                        # The six module is required by pyarrow.
-                        "six >= 1.0.0",
-                        "flatbuffers"],
-      setup_requires=["cython >= 0.23"],
-      extras_require=extras,
-      entry_points={"console_scripts": ["ray=ray.scripts.scripts:main"]},
-      ext_modules=cythonize(extensions),
-      include_package_data=True,
-      zip_safe=False,
-      license="Apache 2.0")
+setup(
+    name="ray",
+    # The version string is also in __init__.py. TODO(pcm): Fix this.
+    version="0.4.0",
+    packages=find_packages(),
+    cmdclass={"build_ext": build_ext},
+    # The BinaryDistribution argument triggers build_ext.
+    distclass=BinaryDistribution,
+    install_requires=[
+        "numpy",
+        "funcsigs",
+        "click",
+        "colorama",
+        "psutil",
+        "pytest",
+        "pyyaml",
+        "redis",
+        # The six module is required by pyarrow.
+        "six >= 1.0.0",
+        "flatbuffers"
+    ],
+    setup_requires=["cython >= 0.23"],
+    extras_require=extras,
+    entry_points={"console_scripts": ["ray=ray.scripts.scripts:main"]},
+    ext_modules = cythonize(extensions),
+    include_package_data=True,
+    zip_safe=False,
+    license="Apache 2.0")
