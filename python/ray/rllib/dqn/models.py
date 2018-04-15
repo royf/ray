@@ -6,7 +6,8 @@ import numpy as np
 
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
-from ray.rllib.models import ModelCatalog, density_model
+
+from ray.rllib.models import ModelCatalog
 from ray.rllib.optimizers.multi_gpu_impl import TOWER_SCOPE_NAME
 
 
@@ -24,14 +25,6 @@ def _build_q_network(registry, inputs, num_actions, config):
         action_scores = layers.fully_connected(
             action_out, num_outputs=num_actions, activation_fn=None)
 
-    with tf.variable_scope("score_var"):
-        score_var_out = frontend_out
-        for hidden in hiddens:
-            score_var_out = layers.fully_connected(
-                score_var_out, num_outputs=hidden, activation_fn=tf.nn.relu)
-        score_var = layers.fully_connected(
-            score_var_out, num_outputs=num_actions, activation_fn=tf.nn.softplus) + 1e-6
-
     if dueling:
         with tf.variable_scope("state_value"):
             state_out = frontend_out
@@ -43,9 +36,9 @@ def _build_q_network(registry, inputs, num_actions, config):
         action_scores_mean = tf.reduce_mean(action_scores, 1)
         action_scores_centered = action_scores - tf.expand_dims(
             action_scores_mean, 1)
-        return state_score + action_scores_centered, score_var
+        return state_score + action_scores_centered
     else:
-        return action_scores, score_var
+        return action_scores
 
 
 def _build_action_network(
@@ -61,17 +54,6 @@ def _build_action_network(
     return tf.cond(
         stochastic, lambda: stochastic_actions,
         lambda: deterministic_actions)
-
-
-def reduce_softmax(x, axis=None, temperature=1.):
-    softmax_dist = tf.nn.softmax(x / tf.expand_dims(temperature, 1), axis)
-    return tf.reduce_sum(softmax_dist * x, axis)
-
-
-def log_partition(x, temperature=1., log_prior=None):
-    if log_prior is None:
-        log_prior = -tf.log(tf.cast(tf.shape(x)[1], x.dtype))
-    return tf.reduce_logsumexp(log_prior + x / tf.expand_dims(temperature, 1), 1) * temperature
 
 
 def _huber_loss(x, delta=1.0):
@@ -127,22 +109,20 @@ class ModelAndLoss(object):
 
     def __init__(
             self, registry, num_actions, config,
-            obs_t, act_t, pseudocount, rew_t, obs_tp1, done_mask, importance_weights):
+            obs_t, act_t, rew_t, obs_tp1, done_mask, importance_weights):
         # q network evaluation
         with tf.variable_scope("q_func", reuse=True):
-            self.q_t, self.q_t_var = _build_q_network(registry, obs_t, num_actions, config)
+            self.q_t = _build_q_network(registry, obs_t, num_actions, config)
 
         # target q network evalution
         with tf.variable_scope("target_q_func") as scope:
-            self.q_tp1, self.q_tp1_var = _build_q_network(
+            self.q_tp1 = _build_q_network(
                 registry, obs_tp1, num_actions, config)
             self.target_q_func_vars = _scope_vars(scope.name)
 
         # q scores for actions which we know were selected in the given state.
         q_t_selected = tf.reduce_sum(
             self.q_t * tf.one_hot(act_t, num_actions), 1)
-        q_t_var_selected = tf.reduce_sum(
-            self.q_t_var * tf.one_hot(act_t, num_actions), 1)
 
         # compute estimate of best possible value starting from state at t + 1
         if config["double_q"]:
@@ -154,31 +134,16 @@ class ModelAndLoss(object):
                 self.q_tp1 * tf.one_hot(
                     q_tp1_best_using_online_net, num_actions), 1)
         else:
-            self.best_a = tf.argmax(self.q_tp1, 1)
-            self.best_q = tf.reduce_max(self.q_tp1, 1, True)
-            self.best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.best_a, num_actions), 1)
-            self.best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.best_a, num_actions), 1)
-            self.subopt_q = tf.where(self.q_tp1 < self.best_q - config["gap_epsilon"], self.q_tp1,
-                                     tf.tile(tf.minimum(tf.reduce_min(self.q_tp1, 1, True), self.best_q - config["gap_epsilon"]), [1, num_actions]))
-            # TODO: second best should be by order of gap_mean / gap_var
-            self.second_best_a = tf.argmax(self.subopt_q, 1)
-            self.second_best_q = tf.reduce_max(self.subopt_q, 1)
-            self.second_best_q_var = tf.reduce_sum(self.q_tp1_var * tf.one_hot(self.second_best_a, num_actions), 1)
-            self.second_best_q_cnt = tf.reduce_sum(pseudocount * tf.one_hot(self.second_best_a, num_actions), 1)
-            self.gap_mean = tf.squeeze(self.best_q, 1) - self.second_best_q
-            self.gap_var = (self.best_q_var / self.best_q_cnt) + (self.second_best_q_var / self.second_best_q_cnt)
-            self.temperature = tf.minimum(self.gap_var / (2 * self.gap_mean), 1e3)
-            self.q_tp1_best = log_partition(self.q_tp1, self.temperature)
-        q_tp1_best_masked = (1.0 - done_mask) * self.q_tp1_best
+            q_tp1_best = tf.reduce_max(self.q_tp1, 1)
+        q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
 
         # compute RHS of bellman equation
         q_t_selected_target = (
-                rew_t + config["gamma"] ** config["n_step"] * q_tp1_best_masked)
+            rew_t + config["gamma"] ** config["n_step"] * q_tp1_best_masked)
 
         # compute the error (potentially clipped)
         self.td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
-        # errors = _huber_loss(self.td_error)
-        errors = tf.square(self.td_error) / q_t_var_selected + tf.log(q_t_var_selected)
+        errors = _huber_loss(self.td_error)
 
         weighted_error = tf.reduce_mean(importance_weights * errors)
 
@@ -200,7 +165,7 @@ class DQNGraph(object):
         # Action Q network
         q_scope_name = TOWER_SCOPE_NAME + "/q_func"
         with tf.variable_scope(q_scope_name) as scope:
-            q_values, q_vars = _build_q_network(
+            q_values = _build_q_network(
                 registry, self.cur_observations, num_actions, config)
             q_func_vars = _scope_vars(scope.name)
 
@@ -216,7 +181,6 @@ class DQNGraph(object):
         self.obs_t = tf.placeholder(
             tf.float32, shape=(None,) + env.observation_space.shape)
         self.act_t = tf.placeholder(tf.int32, [None], name="action")
-        self.pseudocount = tf.placeholder(tf.float32, [None, num_actions], name="pseudocount")
         self.rew_t = tf.placeholder(tf.float32, [None], name="reward")
         self.obs_tp1 = tf.placeholder(
             tf.float32, shape=(None,) + env.observation_space.shape)
@@ -225,11 +189,11 @@ class DQNGraph(object):
             tf.float32, [None], name="weight")
 
         def build_loss(
-                obs_t, act_t, pseudocount, rew_t, obs_tp1, done_mask, importance_weights):
+                obs_t, act_t, rew_t, obs_tp1, done_mask, importance_weights):
             return ModelAndLoss(
                 registry,
                 num_actions, config,
-                obs_t, act_t, pseudocount, rew_t, obs_tp1, done_mask, importance_weights)
+                obs_t, act_t, rew_t, obs_tp1, done_mask, importance_weights)
 
         self.loss_inputs = [
             ("obs", self.obs_t),
@@ -242,7 +206,7 @@ class DQNGraph(object):
 
         with tf.variable_scope(TOWER_SCOPE_NAME):
             loss_obj = build_loss(
-                self.obs_t, self.act_t, self.pseudocount, self.rew_t, self.obs_tp1,
+                self.obs_t, self.act_t, self.rew_t, self.obs_tp1,
                 self.done_mask, self.importance_weights)
 
         self.build_loss = build_loss
@@ -251,19 +215,6 @@ class DQNGraph(object):
         target_q_func_vars = loss_obj.target_q_func_vars
         self.q_t = loss_obj.q_t
         self.q_tp1 = loss_obj.q_tp1
-        self.best_a = loss_obj.best_a
-        self.best_q = loss_obj.best_q
-        self.best_q_var = loss_obj.best_q_var
-        self.best_q_cnt = loss_obj.best_q_cnt
-        self.subopt_q = loss_obj.subopt_q
-        self.second_best_a = loss_obj.second_best_a
-        self.second_best_q = loss_obj.second_best_q
-        self.second_best_q_var = loss_obj.second_best_q_var
-        self.second_best_q_cnt = loss_obj.second_best_q_cnt
-        self.gap_mean = loss_obj.gap_mean
-        self.gap_var = loss_obj.gap_var
-        self.temperature = loss_obj.temperature
-        self.q_tp1_best = loss_obj.q_tp1_best
         self.td_error = loss_obj.td_error
 
         # compute optimization op (potentially with gradient clipping)
@@ -283,12 +234,10 @@ class DQNGraph(object):
         # target Q network
         update_target_expr = []
         for var, var_target in zip(
-                sorted(q_func_vars, key=lambda v: v.name),
+            sorted(q_func_vars, key=lambda v: v.name),
                 sorted(target_q_func_vars, key=lambda v: v.name)):
             update_target_expr.append(var_target.assign(var))
         self.update_target_expr = tf.group(*update_target_expr)
-
-        self.density_model = density_model.DensityModel(num_actions)
 
     def update_target(self, sess):
         return sess.run(self.update_target_expr)
@@ -305,39 +254,17 @@ class DQNGraph(object):
     def compute_gradients(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,
             importance_weights):
-        pseudocount = self.density_model.get_pseudocount(obs_t[:, :, :, -1])
-        results = sess.run(
-            {
-                'q_t': self.q_t,
-                'q_tp1': self.q_tp1,
-                'best_a': self.best_a,
-                'best_q': self.best_q,
-                'best_q_var': self.best_q_var,
-                'best_q_cnt': self.best_q_cnt,
-                'subopt_q': self.subopt_q,
-                'second_best_a': self.second_best_a,
-                'second_best_q': self.second_best_q,
-                'second_best_q_var': self.second_best_q_var,
-                'second_best_q_cnt': self.second_best_q_cnt,
-                'gap_mean': self.gap_mean,
-                'gap_var': self.gap_var,
-                'temperature': self.temperature,
-                'q_tp1_best': self.q_tp1_best,
-                'td_error': self.td_error,
-                'grads': self.grads},
+        td_err, grads = sess.run(
+            [self.td_error, self.grads],
             feed_dict={
                 self.obs_t: obs_t,
                 self.act_t: act_t,
-                self.pseudocount: pseudocount,
                 self.rew_t: rew_t,
                 self.obs_tp1: obs_tp1,
                 self.done_mask: done_mask,
                 self.importance_weights: importance_weights
             })
-        print_results = {k: v for k, v in results.items() if k in ['gap_mean', 'gap_var', 'temperature']}
-        print(print_results)
-        self.density_model.update(obs_t[:, :, :, -1], act_t)
-        return results
+        return td_err, grads
 
     def compute_td_error(
             self, sess, obs_t, act_t, rew_t, obs_tp1, done_mask,

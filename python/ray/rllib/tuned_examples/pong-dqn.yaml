@@ -2,12 +2,9 @@
 pong-deterministic-dqn:
     env: PongDeterministic-v4
     run: DQN
-#    trial_resources:
-#        cpu: 1
-#        gpu: 1
     stop:
         episode_reward_mean: 20
-        time_total_s: 50000
+        time_total_s: 7200
     config:
         gamma: 0.99
         lr: .0001
@@ -18,7 +15,6 @@ pong-deterministic-dqn:
         schedule_max_timesteps: 2000000
         exploration_final_eps: .01
         exploration_fraction: .1
-        double_q: False
         model:
           grayscale: True
           zero_mean: False

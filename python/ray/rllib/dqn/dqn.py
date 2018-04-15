@@ -34,8 +34,6 @@ DEFAULT_CONFIG = dict(
     model={},
     # Discount factor for the MDP
     gamma=0.99,
-    # Epsilon gap for SQL
-    gap_epsilon=0.1,
     # Arguments to pass to the env creator
     env_config={},
 
@@ -186,9 +184,6 @@ class DQNAgent(Agent):
             if not isinstance(stats, list):
                 stats = [stats]
 
-        gap_mean = 0.
-        gap_var = 0.
-        temperature = 0.
         mean_100ep_reward = 0.0
         mean_100ep_length = 0.0
         num_episodes = 0
@@ -205,9 +200,6 @@ class DQNAgent(Agent):
             mean_100ep_length += s["mean_100ep_length"] / len(test_stats)
 
         for s in stats:
-            gap_mean += s["gap_mean"] / len(stats)
-            gap_var += s["gap_var"] / len(stats)
-            temperature += s["temperature"] / len(stats)
             num_episodes += s["num_episodes"]
             explorations.append(s["exploration"])
 
@@ -219,9 +211,6 @@ class DQNAgent(Agent):
             episodes_total=num_episodes,
             timesteps_this_iter=self.global_timestep - start_timestep,
             info=dict({
-                "gap_mean": gap_mean,
-                "gap_var": gap_var,
-                "inv_temperature": 1. / temperature,
                 "min_exploration": min(explorations),
                 "max_exploration": max(explorations),
                 "num_target_updates": self.num_target_updates,
