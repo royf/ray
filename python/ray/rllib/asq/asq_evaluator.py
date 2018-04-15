@@ -8,9 +8,10 @@ from gym.spaces import Discrete
 from ray.rllib.asq import models
 from ray.rllib.dqn.common.schedules import LinearSchedule
 from ray.rllib.dqn.common.wrappers import wrap_dqn
-from ray.rllib.dqn.replay_buffer import PrioritizedReplayBuffer, ReplayBuffer
+from ray.rllib.optimizers.replay_buffer import PrioritizedReplayBuffer, ReplayBuffer
 from ray.rllib.optimizers import PolicyEvaluator, SampleBatch
 from ray.rllib.utils.error import UnsupportedSpaceException
+from ray.rllib.utils.compression import pack
 
 
 class ASQEvaluator(PolicyEvaluator):
@@ -61,12 +62,12 @@ class ASQEvaluator(PolicyEvaluator):
             rewards.append(rew)
             new_obs.append(ob1)
             dones.append(done)
-        batch = SampleBatch({"obs": obs, "actions": actions, "rewards": rewards,
-                             "new_obs": new_obs, "dones": dones, "weights": np.ones_like(rewards)})
-        if no_replay:
-            return batch
+        batch = SampleBatch({"obs": [pack(np.array(o)) for o in obs], "actions": actions, "rewards": rewards,
+                             "new_obs": [pack(np.array(o)) for o in new_obs], "dones": dones, "weights": np.ones_like(rewards)})
         for row in batch.rows():
-            self.replay_buffer.add(row["obs"], row["actions"], row["rewards"], row["new_obs"], row["dones"])
+            self.replay_buffer.add(row["obs"], row["actions"], row["rewards"], row["new_obs"], row["dones"], None)
+        if no_replay:
+            return
         if self.config["prioritized_replay"]:
             (obses_t, actions, rewards, obses_tp1, dones, weights, batch_indexes) = self.replay_buffer.sample(
                 self.config["sample_batch_size"],

@@ -67,7 +67,7 @@ DEFAULT_CONFIG = dict(
     smoothing_num_episodes=100,
     # Arguments to pass to tensorflow
     tf_session_args={
-        "device_count": {"CPU": 1},
+        "device_count": {"CPU": 4, "GPU": 1},
         "log_device_placement": False,
         "allow_soft_placement": True,
         "gpu_options": {
@@ -78,9 +78,12 @@ DEFAULT_CONFIG = dict(
     },
     # Arguments to pass to tensorflow
     tf_remote_session_args={
-        "device_count": {"CPU": 1, "GPU": 1},
+        "device_count": {"CPU": 4, "GPU": 1},
         "log_device_placement": False,
         "allow_soft_placement": True,
+        "gpu_options": {
+            "allow_growth": True
+        },
         "inter_op_parallelism_threads": 1,
         "intra_op_parallelism_threads": 1,
     },
