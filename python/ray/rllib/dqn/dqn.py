@@ -124,8 +124,8 @@ class DQNAgent(Agent):
         "model", "optimizer", "tf_session_args", "env_config"]
     _default_config = DEFAULT_CONFIG
 
-    def _init(self):
-        self.local_evaluator = DQNEvaluator(
+    def _init(self, evaluator_cls=DQNEvaluator):
+        self.local_evaluator = evaluator_cls(
             self.registry, self.env_creator, self.config, self.logdir, 0)
         remote_cls = ray.remote(
             num_cpus=self.config["num_cpus_per_worker"],

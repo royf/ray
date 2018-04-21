@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 from ray.rllib.dqn.dqn import DQNAgent, DEFAULT_CONFIG as DQN_CONFIG
+from ray.rllib.dqn.asq_evaluator import ASQEvaluator
 
 ASQ_DEFAULT_CONFIG = dict(DQN_CONFIG, **dict(
     optimizer_class="EnsembleOptimizer",
@@ -34,6 +35,9 @@ class ASQAgent(DQNAgent):
 
     _agent_name = "ASQ"
     _default_config = ASQ_DEFAULT_CONFIG
+
+    def _init(self):
+        super(self, ASQAgent)._init(ASQEvaluator)
 
     def update_target_if_needed(self):
         # Ape-X updates based on num steps trained, not sampled
