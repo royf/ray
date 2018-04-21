@@ -130,7 +130,7 @@ class DQNAgent(Agent):
         remote_cls = ray.remote(
             num_cpus=self.config["num_cpus_per_worker"],
             num_gpus=self.config["num_gpus_per_worker"])(
-            DQNEvaluator)
+            evaluator_cls)
         self.remote_evaluators = [
             remote_cls.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
