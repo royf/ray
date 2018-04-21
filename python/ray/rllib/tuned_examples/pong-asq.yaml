@@ -4,18 +4,11 @@
 pong-apex:
     env: PongNoFrameskip-v4
     run: ASQ
-    trial_resources:
-        cpu:
-            eval: 4 + spec.config.num_workers
-        gpu:
-            eval: spec.config.num_workers
-        extra_cpu:
-            eval: 4 + spec.config.num_workers
     config:
         double_q: False
         target_network_update_freq: 50000
         num_workers: 8
-        schedule_max_timesteps: 3000000
+        schedule_max_timesteps: 5000000
         lr: .0001
         gamma: 0.99
         optimizer_config:
