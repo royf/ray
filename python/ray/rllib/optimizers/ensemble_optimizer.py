@@ -189,18 +189,18 @@ class EnsembleOptimizer(PolicyOptimizer):
 
         # Otherwise kick of replay tasks for local gradient updates
         self.replay_tasks = TaskPool()
-        for ra in self.replay_actors:
+        for model_idx, ra in enumerate(self.replay_actors):
             for _ in range(REPLAY_QUEUE_DEPTH):
-                self.replay_tasks.add(ra, ra.replay.remote())
+                self.replay_tasks.add((ra, model_idx), ra.replay.remote())
 
         # Kick off async background sampling
         self.sample_tasks = TaskPool()
         weights = self.local_evaluator.get_weights()
-        for ev in self.remote_evaluators:
+        for model_idx, ev in enumerate(self.remote_evaluators):
             ev.set_weights.remote(weights)
             self.steps_since_update[ev] = 0
             for _ in range(SAMPLE_QUEUE_DEPTH):
-                self.sample_tasks.add(ev, ev.sample.remote())
+                self.sample_tasks.add((ev, model_idx), ev.sample.remote())
 
     def step(self):
         start = time.time()
@@ -221,11 +221,11 @@ class EnsembleOptimizer(PolicyOptimizer):
         weights = None
 
         with self.timers["sample_processing"]:
-            for ev, sample_batch in self.sample_tasks.completed():
+            for (ev, model_idx), sample_batch in self.sample_tasks.completed():
                 sample_timesteps += self.sample_batch_size
 
                 # Send the data to the replay buffer
-                self.replay_actors[ev.model_idx].add_batch.remote(
+                self.replay_actors[model_idx].add_batch.remote(
                     sample_batch)
 
                 # Update weights if needed
@@ -244,15 +244,15 @@ class EnsembleOptimizer(PolicyOptimizer):
                     self.steps_since_update[ev] = 0
 
                 # Kick off another sample request
-                self.sample_tasks.add(ev, ev.sample.remote())
+                self.sample_tasks.add((ev, model_idx), ev.sample.remote())
 
         with self.timers["replay_processing"]:
-            for ra, replay in self.replay_tasks.completed():
-                self.replay_tasks.add(ra, ra.replay.remote())
+            for (ra, model_idx), replay in self.replay_tasks.completed():
+                self.replay_tasks.add((ra, model_idx), ra.replay.remote())
                 with self.timers["get_samples"]:
                     samples = ray.get(replay)
                 with self.timers["enqueue"]:
-                    self.learners[ra.model_idx].inqueue.put((ra, samples))
+                    self.learners[model_idx].inqueue.put((ra, samples))
 
         with self.timers["update_priorities"]:
             for learner in self.learners:
