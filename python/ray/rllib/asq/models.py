@@ -116,7 +116,7 @@ class ModelAndLoss(object):
         # q network evaluation
         self.q_t = []
         for model_idx in range(ensemble_size):
-            with tf.variable_scope("q_func_{}".format(model_idx), reuse=True):
+            with tf.variable_scope("q_func/q_func_{}".format(model_idx), reuse=True):
                 self.q_t.append(_build_q_network(registry, obs_t, num_actions, config))
 
         # target q network evalution
@@ -170,7 +170,7 @@ class ASQGraph(object):
         q_outer_scope_name = TOWER_SCOPE_NAME + "/q_func"
         with tf.variable_scope(q_outer_scope_name) as outer_scope:
             for model_idx in range(ensemble_size):
-                q_inner_scope_name = TOWER_SCOPE_NAME + "/q_func_{}".format(model_idx)
+                q_inner_scope_name = "q_func_{}".format(model_idx)
                 with tf.variable_scope(q_inner_scope_name) as inner_scope:
                     q_values.append(_build_q_network(
                         registry, self.cur_observations, num_actions, config))
