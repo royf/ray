@@ -15,6 +15,7 @@ pong-apex:
         double_q: False
         target_network_update_freq: 50000
         num_workers: 8
+        schedule_max_timesteps: 3000000
         lr: .0001
         gamma: 0.99
         optimizer_config:
