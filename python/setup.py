@@ -3,13 +3,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import numpy
 import shutil
 import subprocess
 import sys
 
-from Cython.Build import cythonize
-from setuptools import setup, find_packages, Distribution, Extension
+from setuptools import setup, find_packages, Distribution
 import setuptools.command.build_ext as _build_ext
 
 # Ideally, we could include these files by putting them in a
@@ -59,10 +57,8 @@ extras = {
 }
 
 
-class build_ext(_build_ext.build_ext, object):
+class build_ext(_build_ext.build_ext):
     def run(self):
-        super(build_ext, self).run()
-
         # Note: We are passing in sys.executable so that we use the same
         # version of Python to build pyarrow inside the build.sh script. Note
         # that certain flags will not be passed along such as --user or sudo.
@@ -116,10 +112,6 @@ class BinaryDistribution(Distribution):
         return True
 
 
-extensions = [
-    Extension('ray.rllib.models.fast_cts', sources=['ray/rllib/models/fast_cts.pyx'], include_dirs=[numpy.get_include()])
-]
-
 setup(
     name="ray",
     # The version string is also in __init__.py. TODO(pcm): Fix this.
@@ -144,7 +136,6 @@ setup(
     setup_requires=["cython >= 0.23"],
     extras_require=extras,
     entry_points={"console_scripts": ["ray=ray.scripts.scripts:main"]},
-    ext_modules = cythonize(extensions),
     include_package_data=True,
     zip_safe=False,
     license="Apache 2.0")
