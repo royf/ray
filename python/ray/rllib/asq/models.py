@@ -126,29 +126,31 @@ class ModelAndLoss(object):
                 with tf.variable_scope("target_q_func_{}".format(model_idx)):
                     self.q_tp1.append(_build_q_network(
                         registry, obs_tp1, num_actions, config))
-            self.q_tp1 = tf.stack(self.q_tp1)
             self.target_q_func_vars = _scope_vars(scope.name)
 
-        # q scores for actions which we know were selected in the given state.
-        q_t_selected = [tf.reduce_sum(
-            q_t * tf.one_hot(act_t, num_actions), 1) for q_t in self.q_t]
+        self.td_error = []
+        self.loss = []
+        for model_idx in range(ensemble_size):
+            # q scores for actions which we know were selected in the given state.
+            q_t_selected = tf.reduce_sum(
+                self.q_t[model_idx] * tf.one_hot(act_t, num_actions), 1)
 
-        # compute estimate of best possible value starting from state at t + 1
-        assert not config["double_q"]
-        q_tp1_best = tf.reduce_max(tf.reduce_mean(self.q_tp1, 0), 1)
-        q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
+            # compute estimate of best possible value starting from state at t + 1
+            assert not config["double_q"]
+            q_tp1_best = tf.reduce_max(self.q_tp1[model_idx], 1)
+            q_tp1_best_masked = (1.0 - done_mask) * q_tp1_best
 
-        # compute RHS of bellman equation
-        q_t_selected_target = (
-            rew_t + config["gamma"] ** config["n_step"] * q_tp1_best_masked)
+            # compute RHS of bellman equation
+            q_t_selected_target = (
+                rew_t + config["gamma"] ** config["n_step"] * q_tp1_best_masked)
 
-        # compute the error (potentially clipped)
-        self.td_error = [q_t - tf.stop_gradient(q_t_selected_target) for q_t in q_t_selected]
-        errors = _huber_loss(self.td_error)
+            # compute the error (potentially clipped)
+            self.td_error.append(q_t_selected - tf.stop_gradient(q_t_selected_target))
+            errors = _huber_loss(self.td_error[model_idx])
 
-        weighted_error = tf.reduce_mean(importance_weights * errors)
+            weighted_error = tf.reduce_mean(importance_weights * errors)
 
-        self.loss = weighted_error
+            self.loss.append(weighted_error)
 
 
 class ASQGraph(object):
@@ -229,11 +231,11 @@ class ASQGraph(object):
         # compute optimization op (potentially with gradient clipping)
         if config["grad_norm_clipping"] is not None:
             self.grads_and_vars = [_minimize_and_clip(
-                optimizer, weighted_error, var_list=vs,
-                clip_val=config["grad_norm_clipping"]) for vs in q_func_vars]
+                optimizer, weighted_error[model_idx], var_list=q_func_vars[model_idx],
+                clip_val=config["grad_norm_clipping"]) for model_idx in range(ensemble_size)]
         else:
             self.grads_and_vars = [optimizer.compute_gradients(
-                weighted_error, var_list=vs) for vs in q_func_vars]
+                weighted_error[model_idx], var_list=q_func_vars[model_idx]) for model_idx in range(ensemble_size)]
         self.grads_and_vars = [[
             (g, v) for (g, v) in gv if g is not None] for gv in self.grads_and_vars]
         self.grads = [[g for (g, v) in gv] for gv in self.grads_and_vars]
