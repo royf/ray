@@ -86,7 +86,7 @@ class ASQEvaluator(PolicyEvaluator):
 
         # Note that this encompasses both the Q and target network
         self.variables = ray.experimental.TensorFlowVariables(
-            tf.group(self.asq_graph.q_t, self.asq_graph.q_tp1), self.sess)
+            tf.group(tf.group(self.asq_graph.q_t), tf.group(self.asq_graph.q_tp1)), self.sess)
 
         self.episode_rewards = [0.0]
         self.episode_lengths = [0.0]
