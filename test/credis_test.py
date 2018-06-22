@@ -1,12 +1,16 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
-import redis
 import unittest
 
+import redis
+
 import ray
+
+
+def parse_client(addr_port_str):
+    redis_address, redis_port = addr_port_str.split(":")
+    return redis.StrictRedis(host=redis_address, port=redis_port)
 
 
 @unittest.skipIf(not os.environ.get('RAY_USE_NEW_GCS', False),
@@ -19,15 +23,27 @@ class CredisTest(unittest.TestCase):
         ray.worker.cleanup()
 
     def test_credis_started(self):
-        assert "credis_address" in self.config
-        credis_address, credis_port = self.config["credis_address"].split(":")
-        credis_client = redis.StrictRedis(
-            host=credis_address, port=credis_port)
-        assert credis_client.ping() is True
+        assert "redis_address" in self.config
+        primary = parse_client(self.config['redis_address'])
+        assert primary.ping() is True
+        member = primary.lrange('RedisShards', 0, -1)[0]
+        shard = parse_client(member.decode())
 
-        redis_client = ray.worker.global_state.redis_client
-        addr = redis_client.get("credis_address").decode("ascii")
-        assert addr == self.config["credis_address"]
+        # TODO(zongheng): remove these next four lines of horror, once task
+        # table is correctly placed in the data shard & swapping master and
+        # member modules.
+        member = self.config['redis_address']
+        temp = primary
+        primary = shard
+        shard = temp
+
+        # Check that primary has loaded credis' master module.
+        chain = primary.execute_command('MASTER.GET_CHAIN')
+        assert len(chain) == 1
+
+        # Check that the shard has loaded credis' member module.
+        assert chain[0].decode() == member
+        assert shard.execute_command('MEMBER.SN') == -1
 
 
 if __name__ == "__main__":

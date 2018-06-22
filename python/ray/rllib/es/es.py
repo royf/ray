@@ -27,18 +27,19 @@ Result = namedtuple("Result", [
 ])
 
 
-DEFAULT_CONFIG = dict(
-    l2_coeff=0.005,
-    noise_stdev=0.02,
-    episodes_per_batch=1000,
-    timesteps_per_batch=10000,
-    eval_prob=0.003,
-    return_proc_mode="centered_rank",
-    num_workers=10,
-    stepsize=0.01,
-    observation_filter="MeanStdFilter",
-    noise_size=250000000,
-    env_config={})
+DEFAULT_CONFIG = {
+    'l2_coeff': 0.005,
+    'noise_stdev': 0.02,
+    'episodes_per_batch': 1000,
+    'timesteps_per_batch': 10000,
+    'eval_prob': 0.003,
+    'return_proc_mode': "centered_rank",
+    'num_workers': 10,
+    'stepsize': 0.01,
+    'observation_filter': "MeanStdFilter",
+    'noise_size': 250000000,
+    'env_config': {},
+}
 
 
 @ray.remote
@@ -63,7 +64,7 @@ class SharedNoiseTable(object):
 
 @ray.remote
 class Worker(object):
-    def __init__(self, registry, config, policy_params, env_creator, noise,
+    def __init__(self, config, policy_params, env_creator, noise,
                  min_task_runtime=0.2):
         self.min_task_runtime = min_task_runtime
         self.config = config
@@ -72,12 +73,11 @@ class Worker(object):
 
         self.env = env_creator(config["env_config"])
         from ray.rllib import models
-        self.preprocessor = models.ModelCatalog.get_preprocessor(
-            registry, self.env)
+        self.preprocessor = models.ModelCatalog.get_preprocessor(self.env)
 
         self.sess = utils.make_session(single_threaded=True)
         self.policy = policies.GenericPolicy(
-            registry, self.sess, self.env.action_space, self.preprocessor,
+            self.sess, self.env.action_space, self.preprocessor,
             config["observation_filter"], **policy_params)
 
     def rollout(self, timestep_limit, add_noise=True):
@@ -151,12 +151,11 @@ class ESAgent(agent.Agent):
 
         env = self.env_creator(self.config["env_config"])
         from ray.rllib import models
-        preprocessor = models.ModelCatalog.get_preprocessor(
-            self.registry, env)
+        preprocessor = models.ModelCatalog.get_preprocessor(env)
 
         self.sess = utils.make_session(single_threaded=False)
         self.policy = policies.GenericPolicy(
-            self.registry, self.sess, env.action_space, preprocessor,
+            self.sess, env.action_space, preprocessor,
             self.config["observation_filter"], **policy_params)
         self.optimizer = optimizers.Adam(self.policy, self.config["stepsize"])
 
@@ -169,8 +168,7 @@ class ESAgent(agent.Agent):
         print("Creating actors.")
         self.workers = [
             Worker.remote(
-                self.registry, self.config, policy_params, self.env_creator,
-                noise_id)
+                self.config, policy_params, self.env_creator, noise_id)
             for _ in range(self.config["num_workers"])]
 
         self.episodes_so_far = 0
@@ -192,10 +190,10 @@ class ESAgent(agent.Agent):
                 # Update the number of episodes and the number of timesteps
                 # keeping in mind that result.noisy_lengths is a list of lists,
                 # where the inner lists have length 2.
-                num_episodes += sum([len(pair) for pair
-                                     in result.noisy_lengths])
-                num_timesteps += sum([sum(pair) for pair
-                                      in result.noisy_lengths])
+                num_episodes += sum(len(pair) for pair
+                                    in result.noisy_lengths)
+                num_timesteps += sum(sum(pair) for pair
+                                     in result.noisy_lengths)
         return results, num_episodes, num_timesteps
 
     def _train(self):
@@ -311,7 +309,7 @@ class ESAgent(agent.Agent):
     def _stop(self):
         # workaround for https://github.com/ray-project/ray/issues/1516
         for w in self.workers:
-            w.__ray_terminate__.remote(w._ray_actor_id.id())
+            w.__ray_terminate__.remote()
 
     def _save(self, checkpoint_dir):
         checkpoint_path = os.path.join(

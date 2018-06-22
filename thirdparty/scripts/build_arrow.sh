@@ -15,6 +15,12 @@ else
 fi
 echo "Using Python executable $PYTHON_EXECUTABLE."
 
+LANGUAGE="python"
+if [[ -n  "$2" ]]; then
+  LANGUAGE=$2
+fi
+echo "Build language is $LANGUAGE."
+
 unamestr="$(uname)"
 
 if [[ "$unamestr" == "Linux" ]]; then
@@ -35,8 +41,16 @@ else
 fi
 
 # Download and compile arrow if it isn't already present.
-if [[ ! -d $TP_DIR/../python/ray/pyarrow_files/pyarrow ]]; then
+if [[ ! -d $TP_DIR/../python/ray/pyarrow_files/pyarrow || \
+  "$LANGUAGE" == "java" && ! -f $TP_DIR/../build/src/plasma/libplasma_java.dylib ]]; then
     echo "building arrow"
+
+    # Make sure arrow will be built again when building ray for java later than python
+    if [[ "$LANGUAGE" == "java" ]]; then
+      rm -rf $TP_DIR/build/arrow
+      rm -rf $TP_DIR/build/parquet-cpp
+      rm -rf $TP_DIR/pkg/arrow
+    fi
 
     if [[ ! -d $TP_DIR/build/arrow ]]; then
       git clone https://github.com/apache/arrow.git "$TP_DIR/build/arrow"
@@ -44,16 +58,21 @@ if [[ ! -d $TP_DIR/../python/ray/pyarrow_files/pyarrow ]]; then
 
     pushd $TP_DIR/build/arrow
     git fetch origin master
-    # The PR for this commit is https://github.com/apache/arrow/pull/1939. We
+    # The PR for this commit is https://github.com/apache/arrow/pull/2065. We
     # include the link here to make it easier to find the right commit because
     # Arrow often rewrites git history and invalidates certain commits.
-    git checkout 5f9cf9c96709f92e9ac4828cf3e106a165576ce7
+    git checkout ce23c06469de9cf0c3e38e35cdb8d135f341b964
 
     cd cpp
     if [ ! -d "build" ]; then
       mkdir build
     fi
     cd build
+
+    BUILD_ARROW_PLASMA_JAVA_CLIENT=off
+    if [[ "$LANGUAGE" == "java" ]]; then
+      BUILD_ARROW_PLASMA_JAVA_CLIENT=on
+    fi
 
     ARROW_HOME=$TP_DIR/pkg/arrow/cpp/build/cpp-install
     BOOST_ROOT=$TP_DIR/pkg/boost \
@@ -74,6 +93,7 @@ if [[ ! -d $TP_DIR/../python/ray/pyarrow_files/pyarrow ]]; then
         -DARROW_WITH_LZ4=off \
         -DARROW_WITH_ZLIB=off \
         -DARROW_WITH_ZSTD=off \
+        -DARROW_PLASMA_JAVA_CLIENT=$BUILD_ARROW_PLASMA_JAVA_CLIENT \
         ..
     make VERBOSE=1 -j$PARALLEL
     make install

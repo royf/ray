@@ -38,7 +38,7 @@ def rollout(policy, env, timestep_limit=None, add_noise=False):
 
 
 class GenericPolicy(object):
-    def __init__(self, registry, sess, action_space, preprocessor,
+    def __init__(self, sess, action_space, preprocessor,
                  observation_filter, action_noise_std):
         self.sess = sess
         self.action_space = action_space
@@ -52,16 +52,16 @@ class GenericPolicy(object):
         # Policy network.
         dist_class, dist_dim = ModelCatalog.get_action_dist(
             self.action_space, dist_type="deterministic")
-        model = ModelCatalog.get_model(registry, self.inputs, dist_dim)
+        model = ModelCatalog.get_model(self.inputs, dist_dim)
         dist = dist_class(model.outputs)
         self.sampler = dist.sample()
 
         self.variables = ray.experimental.TensorFlowVariables(
             model.outputs, self.sess)
 
-        self.num_params = sum([np.prod(variable.shape.as_list())
-                               for _, variable
-                               in self.variables.variables.items()])
+        self.num_params = sum(np.prod(variable.shape.as_list())
+                              for _, variable
+                              in self.variables.variables.items())
         self.sess.run(tf.global_variables_initializer())
 
     def compute(self, observation, add_noise=False, update=True):

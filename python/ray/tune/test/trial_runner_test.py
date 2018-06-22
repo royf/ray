@@ -11,7 +11,7 @@ from ray.rllib import _register_all
 
 from ray.tune import Trainable, TuneError
 from ray.tune import register_env, register_trainable, run_experiments
-from ray.tune.registry import _default_registry, TRAINABLE_CLASS
+from ray.tune.registry import _global_registry, TRAINABLE_CLASS
 from ray.tune.result import DEFAULT_RESULTS_DIR, TrainingResult
 from ray.tune.util import pin_in_object_store, get_pinned_object
 from ray.tune.experiment import Experiment
@@ -157,6 +157,26 @@ class TrainableFunctionApiTest(unittest.TestCase):
                 "local_dir": "/tmp/logdir",
                 "config": {
                     "a": "b"
+                },
+            }
+        })
+
+    def testLogdirStartingWithTilde(self):
+        local_dir = '~/ray_results/local_dir'
+
+        def train(config, reporter):
+            cwd = os.getcwd()
+            assert cwd.startswith(os.path.expanduser(local_dir)), cwd
+            assert not cwd.startswith('~'), cwd
+            reporter(timesteps_total=1)
+
+        register_trainable('f1', train)
+        run_experiments({
+            'foo': {
+                'run': 'f1',
+                'local_dir': local_dir,
+                'config': {
+                    'a': 'b'
                 },
             }
         })
@@ -506,13 +526,11 @@ class VariantGeneratorTest(unittest.TestCase):
         trials = generate_trials({
             "run": "PPO",
             "config": {
-                "x":
-                grid_search([
+                "x": grid_search([
                     lambda spec: spec.config.y * 100,
                     lambda spec: spec.config.y * 200
                 ]),
-                "y":
-                lambda spec: 1,
+                "y": lambda spec: 1,
             },
         })
         trials = list(trials)
@@ -577,7 +595,7 @@ class TrialRunnerTest(unittest.TestCase):
 
     def testTrialErrorOnStart(self):
         ray.init()
-        _default_registry.register(TRAINABLE_CLASS, "asdf", None)
+        _global_registry.register(TRAINABLE_CLASS, "asdf", None)
         trial = Trial("asdf", resources=Resources(1, 0))
         try:
             trial.start()
@@ -672,7 +690,7 @@ class TrialRunnerTest(unittest.TestCase):
             },
             "resources": Resources(cpu=1, gpu=1),
         }
-        _default_registry.register(TRAINABLE_CLASS, "asdf", None)
+        _global_registry.register(TRAINABLE_CLASS, "asdf", None)
         trials = [Trial("asdf", **kwargs), Trial("__fake", **kwargs)]
         for t in trials:
             runner.add_trial(t)

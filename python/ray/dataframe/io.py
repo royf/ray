@@ -7,9 +7,11 @@ from io import BytesIO
 import os
 import re
 import warnings
+import pandas
 
 from pyarrow.parquet import ParquetFile
-import pandas as pd
+from pandas.io.common import _infer_compression  # don't depend on internal API
+
 
 from .dataframe import ray, DataFrame
 from . import get_npartitions
@@ -60,43 +62,46 @@ def _read_parquet_row_group(path, columns, row_group_id, kwargs={}):
 
 
 @ray.remote
-def _split_df(pd_df, chunksize):
-    """Split a pd_df into partitions.
+def _split_df(pandas_df, chunksize):
+    """Split a pandas_df into partitions.
 
     Returns:
         remote_df_ids ([ObjectID])
     """
     dataframes = []
 
-    while len(pd_df) > chunksize:
-        t_df = pd_df[:chunksize]
+    while len(pandas_df) > chunksize:
+        t_df = pandas_df[:chunksize]
         t_df.reset_index(drop=True)
         top = ray.put(t_df)
         dataframes.append(top)
-        pd_df = pd_df[chunksize:]
+        pandas_df = pandas_df[chunksize:]
     else:
-        pd_df = pd_df.reset_index(drop=True)
-        dataframes.append(ray.put(pd_df))
+        pandas_df = pandas_df.reset_index(drop=True)
+        dataframes.append(ray.put(pandas_df))
 
     return dataframes
 
 
 # CSV
-def _compute_offset(fn, npartitions):
+def _compute_offset(fn, npartitions, ignore_first_line=False):
     """
     Calculate the currect bytes offsets for a csv file.
     Return a list of (start, end) tuple where the end == \n or EOF.
     """
     total_bytes = os.path.getsize(fn)
-    chunksize = total_bytes // npartitions
+    bio = open(fn, 'rb')
+    if ignore_first_line:
+        start = len(bio.readline())
+        chunksize = (total_bytes - start) // npartitions
+    else:
+        start = 0
+        chunksize = total_bytes // npartitions
     if chunksize == 0:
         chunksize = 1
 
-    bio = open(fn, 'rb')
-
     offsets = []
-    start = 0
-    while start <= total_bytes:
+    while start < total_bytes:
         bio.seek(chunksize, 1)  # Move forward {chunksize} bytes
         extend_line = bio.readline()  # Move after the next \n
         total_offset = chunksize + len(extend_line)
@@ -117,19 +122,30 @@ def _get_firstline(file_path):
 
 
 def _infer_column(first_line, kwargs={}):
-    return pd.read_csv(BytesIO(first_line), **kwargs).columns
+    return pandas.read_csv(BytesIO(first_line), **kwargs).columns
 
 
 @ray.remote
-def _read_csv_with_offset(fn, start, end, header=b'', kwargs={}):
+def _read_csv_with_offset(fn, start, end, kwargs={}, header=b''):
+    kwargs["quoting"] = int(kwargs["quoting"])  # See issue #2078
+
     bio = open(fn, 'rb')
     bio.seek(start)
     to_read = header + bio.read(end - start)
     bio.close()
-    return pd.read_csv(BytesIO(to_read), **kwargs)
+    pandas_df = pandas.read_csv(BytesIO(to_read), **kwargs)
+    index = pandas_df.index
+    # Partitions must have RangeIndex
+    pandas_df.index = pandas.RangeIndex(0, len(pandas_df))
+    return pandas_df, index
 
 
-def read_csv(filepath,
+@ray.remote
+def get_index(*partition_indices):
+    return partition_indices[0].append(partition_indices[1:])
+
+
+def read_csv(filepath_or_buffer,
              sep=',',
              delimiter=None,
              header='infer',
@@ -192,77 +208,110 @@ def read_csv(filepath,
         kwargs: Keyword arguments in pandas::from_csv
     """
 
-    kwargs = dict(
-        sep=sep,
-        delimiter=delimiter,
-        header=header,
-        names=names,
-        index_col=index_col,
-        usecols=usecols,
-        squeeze=squeeze,
-        prefix=prefix,
-        mangle_dupe_cols=mangle_dupe_cols,
-        dtype=dtype,
-        engine=engine,
-        converters=converters,
-        true_values=true_values,
-        false_values=false_values,
-        skipinitialspace=skipinitialspace,
-        skiprows=skiprows,
-        nrows=nrows,
-        na_values=na_values,
-        keep_default_na=keep_default_na,
-        na_filter=na_filter,
-        verbose=verbose,
-        skip_blank_lines=skip_blank_lines,
-        parse_dates=parse_dates,
-        infer_datetime_format=infer_datetime_format,
-        keep_date_col=keep_date_col,
-        date_parser=date_parser,
-        dayfirst=dayfirst,
-        iterator=iterator,
-        chunksize=chunksize,
-        compression=compression,
-        thousands=thousands,
-        decimal=decimal,
-        lineterminator=lineterminator,
-        quotechar=quotechar,
-        quoting=quoting,
-        escapechar=escapechar,
-        comment=comment,
-        encoding=encoding,
-        dialect=dialect,
-        tupleize_cols=tupleize_cols,
-        error_bad_lines=error_bad_lines,
-        warn_bad_lines=warn_bad_lines,
-        skipfooter=skipfooter,
-        skip_footer=skip_footer,
-        doublequote=doublequote,
-        delim_whitespace=delim_whitespace,
-        as_recarray=as_recarray,
-        compact_ints=compact_ints,
-        use_unsigned=use_unsigned,
-        low_memory=low_memory,
-        buffer_lines=buffer_lines,
-        memory_map=memory_map,
-        float_precision=float_precision)
+    kwargs = {
+        'sep': sep,
+        'delimiter': delimiter,
+        'header': header,
+        'names': names,
+        'index_col': index_col,
+        'usecols': usecols,
+        'squeeze': squeeze,
+        'prefix': prefix,
+        'mangle_dupe_cols': mangle_dupe_cols,
+        'dtype': dtype,
+        'engine': engine,
+        'converters': converters,
+        'true_values': true_values,
+        'false_values': false_values,
+        'skipinitialspace': skipinitialspace,
+        'skiprows': skiprows,
+        'nrows': nrows,
+        'na_values': na_values,
+        'keep_default_na': keep_default_na,
+        'na_filter': na_filter,
+        'verbose': verbose,
+        'skip_blank_lines': skip_blank_lines,
+        'parse_dates': parse_dates,
+        'infer_datetime_format': infer_datetime_format,
+        'keep_date_col': keep_date_col,
+        'date_parser': date_parser,
+        'dayfirst': dayfirst,
+        'iterator': iterator,
+        'chunksize': chunksize,
+        'compression': compression,
+        'thousands': thousands,
+        'decimal': decimal,
+        'lineterminator': lineterminator,
+        'quotechar': quotechar,
+        'quoting': quoting,
+        'escapechar': escapechar,
+        'comment': comment,
+        'encoding': encoding,
+        'dialect': dialect,
+        'tupleize_cols': tupleize_cols,
+        'error_bad_lines': error_bad_lines,
+        'warn_bad_lines': warn_bad_lines,
+        'skipfooter': skipfooter,
+        'skip_footer': skip_footer,
+        'doublequote': doublequote,
+        'delim_whitespace': delim_whitespace,
+        'as_recarray': as_recarray,
+        'compact_ints': compact_ints,
+        'use_unsigned': use_unsigned,
+        'low_memory': low_memory,
+        'buffer_lines': buffer_lines,
+        'memory_map': memory_map,
+        'float_precision': float_precision,
+    }
 
-    offsets = _compute_offset(filepath, get_npartitions())
+    # Default to Pandas read_csv for non-serializable objects
+    if not isinstance(filepath_or_buffer, str) or \
+            _infer_compression(filepath_or_buffer, compression) is not None:
 
+        warnings.warn("Defaulting to Pandas implementation",
+                      PendingDeprecationWarning)
+
+        pandas_obj = pandas.read_csv(filepath_or_buffer, **kwargs)
+        if isinstance(pandas_obj, pandas.DataFrame):
+            return from_pandas(pandas_obj, get_npartitions())
+
+        return pandas_obj
+
+    filepath = filepath_or_buffer
+
+    # TODO: handle case where header is a list of lines
     first_line = _get_firstline(filepath)
     columns = _infer_column(first_line, kwargs=kwargs)
+    if header is None or (header == "infer" and names is not None):
+        first_line = b""
+        ignore_first_line = False
+    else:
+        ignore_first_line = True
+
+    offsets = _compute_offset(filepath, get_npartitions(),
+                              ignore_first_line=ignore_first_line)
+
+    # Serialize objects to speed up later use in remote tasks
+    first_line_id = ray.put(first_line)
+    kwargs_id = ray.put(kwargs)
 
     df_obj_ids = []
+    index_obj_ids = []
     for start, end in offsets:
         if start != 0:
-            df = _read_csv_with_offset.remote(
-                filepath, start, end, header=first_line, kwargs=kwargs)
+            df, index = _read_csv_with_offset._submit(
+                args=(filepath, start, end, kwargs_id, first_line_id),
+                num_return_vals=2)
         else:
-            df = _read_csv_with_offset.remote(
-                filepath, start, end, kwargs=kwargs)
+            df, index = _read_csv_with_offset._submit(
+                args=(filepath, start, end, kwargs_id),
+                num_return_vals=2)
         df_obj_ids.append(df)
+        index_obj_ids.append(index)
 
-    return DataFrame(row_partitions=df_obj_ids, columns=columns)
+    index = get_index.remote(*index_obj_ids) if index_col is not None else None
+
+    return DataFrame(row_partitions=df_obj_ids, columns=columns, index=index)
 
 
 def read_json(path_or_buf=None,
@@ -283,10 +332,11 @@ def read_json(path_or_buf=None,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_json(path_or_buf, orient, typ, dtype,
-                              convert_axes, convert_dates, keep_default_dates,
-                              numpy, precise_float, date_unit, encoding,
-                              lines, chunksize, compression)
+    port_frame = pandas.read_json(path_or_buf, orient, typ, dtype,
+                                  convert_axes, convert_dates,
+                                  keep_default_dates, numpy, precise_float,
+                                  date_unit, encoding, lines, chunksize,
+                                  compression)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -311,10 +361,10 @@ def read_html(io,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_html(io, match, flavor, header, index_col,
-                              skiprows, attrs, parse_dates, tupleize_cols,
-                              thousands, encoding, decimal, converters,
-                              na_values, keep_default_na)
+    port_frame = pandas.read_html(io, match, flavor, header, index_col,
+                                  skiprows, attrs, parse_dates, tupleize_cols,
+                                  thousands, encoding, decimal, converters,
+                                  na_values, keep_default_na)
     ray_frame = from_pandas(port_frame[0], get_npartitions())
 
     return ray_frame
@@ -325,7 +375,7 @@ def read_clipboard(sep=r'\s+'):
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_clipboard(sep)
+    port_frame = pandas.read_clipboard(sep)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -354,11 +404,11 @@ def read_excel(io,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_excel(io, sheet_name, header, skiprows, skip_footer,
-                               index_col, names, usecols, parse_dates,
-                               date_parser, na_values, thousands,
-                               convert_float, converters, dtype, true_values,
-                               false_values, engine, squeeze)
+    port_frame = pandas.read_excel(io, sheet_name, header, skiprows,
+                                   skip_footer, index_col, names, usecols,
+                                   parse_dates, date_parser, na_values,
+                                   thousands, convert_float, converters, dtype,
+                                   true_values, false_values, engine, squeeze)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -371,7 +421,7 @@ def read_hdf(path_or_buf,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_hdf(path_or_buf, key, mode)
+    port_frame = pandas.read_hdf(path_or_buf, key, mode)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -383,7 +433,7 @@ def read_feather(path,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_feather(path)
+    port_frame = pandas.read_feather(path)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -396,7 +446,7 @@ def read_msgpack(path_or_buf,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_msgpack(path_or_buf, encoding, iterator)
+    port_frame = pandas.read_msgpack(path_or_buf, encoding, iterator)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -417,10 +467,10 @@ def read_stata(filepath_or_buffer,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_stata(filepath_or_buffer, convert_dates,
-                               convert_categoricals, encoding, index_col,
-                               convert_missing, preserve_dtypes, columns,
-                               order_categoricals, chunksize, iterator)
+    port_frame = pandas.read_stata(filepath_or_buffer, convert_dates,
+                                   convert_categoricals, encoding, index_col,
+                                   convert_missing, preserve_dtypes, columns,
+                                   order_categoricals, chunksize, iterator)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -436,8 +486,8 @@ def read_sas(filepath_or_buffer,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_sas(filepath_or_buffer, format, index, encoding,
-                             chunksize, iterator)
+    port_frame = pandas.read_sas(filepath_or_buffer, format, index, encoding,
+                                 chunksize, iterator)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -449,7 +499,7 @@ def read_pickle(path,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_pickle(path, compression)
+    port_frame = pandas.read_pickle(path, compression)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame
@@ -467,8 +517,8 @@ def read_sql(sql,
     warnings.warn("Defaulting to Pandas implementation",
                   PendingDeprecationWarning)
 
-    port_frame = pd.read_sql(sql, con, index_col, coerce_float, params,
-                             parse_dates, columns, chunksize)
+    port_frame = pandas.read_sql(sql, con, index_col, coerce_float, params,
+                                 parse_dates, columns, chunksize)
     ray_frame = from_pandas(port_frame, get_npartitions())
 
     return ray_frame

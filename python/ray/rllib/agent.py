@@ -9,7 +9,7 @@ import os
 import pickle
 
 import tensorflow as tf
-from ray.tune.registry import ENV_CREATOR
+from ray.tune.registry import ENV_CREATOR, _global_registry
 from ray.tune.result import TrainingResult
 from ray.tune.trainable import Trainable
 
@@ -56,12 +56,10 @@ class Agent(Trainable):
         env_creator (func): Function that creates a new training env.
         config (obj): Algorithm-specific configuration data.
         logdir (str): Directory in which training outputs should be placed.
-        registry (obj): Tune object registry which holds user-registered
-            classes and objects by name.
     """
 
     _allow_unknown_configs = False
-    _allow_unknown_subkeys = []
+    _allow_unknown_subkeys = ["env_config", "model", "optimizer"]
 
     @classmethod
     def resource_help(cls, config):
@@ -72,16 +70,13 @@ class Agent(Trainable):
             "The config of this agent is: " + json.dumps(config))
 
     def __init__(
-            self, config=None, env=None, registry=None,
-            logger_creator=None):
+            self, config=None, env=None, logger_creator=None):
         """Initialize an RLLib agent.
 
         Args:
             config (dict): Algorithm-specific configuration data.
             env (str): Name of the environment to use. Note that this can also
                 be specified as the `env` key in config.
-            registry (obj): Object registry for user-defined envs, models, etc.
-                If unspecified, the default registry will be used.
             logger_creator (func): Function that creates a ray.tune.Logger
                 object. If unspecified, a default logger is created.
         """
@@ -90,14 +85,14 @@ class Agent(Trainable):
 
         # Agents allow env ids to be passed directly to the constructor.
         self._env_id = env or config.get("env")
-        Trainable.__init__(self, config, registry, logger_creator)
+        Trainable.__init__(self, config, logger_creator)
 
     def _setup(self):
         env = self._env_id
         if env:
             self.config["env"] = env
-            if self.registry and self.registry.contains(ENV_CREATOR, env):
-                self.env_creator = self.registry.get(ENV_CREATOR, env)
+            if _global_registry.contains(ENV_CREATOR, env):
+                self.env_creator = _global_registry.get(ENV_CREATOR, env)
             else:
                 import gym  # soft dependency
                 self.env_creator = lambda env_config: gym.make(env)
@@ -231,10 +226,7 @@ class _ParameterTuningAgent(_MockAgent):
 def get_agent_class(alg):
     """Returns the class of a known agent given its name."""
 
-    if alg == "DDPG2":
-        from ray.rllib import ddpg2
-        return ddpg2.DDPG2Agent
-    elif alg == "DDPG":
+    if alg == "DDPG":
         from ray.rllib import ddpg
         return ddpg.DDPGAgent
     elif alg == "APEX_DDPG":

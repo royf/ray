@@ -29,11 +29,6 @@ NIL_WORKER_ID = 20 * b"\xff"
 NIL_OBJECT_ID = 20 * b"\xff"
 NIL_ACTOR_ID = 20 * b"\xff"
 
-# These constants are an implementation detail of ray_redis_module.cc, so this
-# must be kept in sync with that file.
-DB_CLIENT_PREFIX = "CL:"
-TASK_PREFIX = "TT:"
-
 
 def random_driver_id():
     return local_scheduler.ObjectID(np.random.bytes(ID_SIZE))
@@ -101,7 +96,7 @@ class TestGlobalScheduler(unittest.TestCase):
                 static_resources={"CPU": 10})
             # Connect to the scheduler.
             local_scheduler_client = local_scheduler.LocalSchedulerClient(
-                local_scheduler_name, NIL_WORKER_ID, False)
+                local_scheduler_name, NIL_WORKER_ID, False, False)
             self.local_scheduler_clients.append(local_scheduler_client)
             self.local_scheduler_pids.append(p4)
 
@@ -285,13 +280,10 @@ class TestGlobalScheduler(unittest.TestCase):
                     for task_entry in task_entries.values()
                 ]
                 self.assertTrue(
-                    all([
-                        status in [
-                            state.TASK_STATUS_WAITING,
-                            state.TASK_STATUS_SCHEDULED,
-                            state.TASK_STATUS_QUEUED
-                        ] for status in task_statuses
-                    ]))
+                    all(status in [
+                        state.TASK_STATUS_WAITING, state.TASK_STATUS_SCHEDULED,
+                        state.TASK_STATUS_QUEUED
+                    ] for status in task_statuses))
                 num_tasks_done = task_statuses.count(state.TASK_STATUS_QUEUED)
                 num_tasks_scheduled = task_statuses.count(
                     state.TASK_STATUS_SCHEDULED)
@@ -302,10 +294,8 @@ class TestGlobalScheduler(unittest.TestCase):
                       "tasks queued = {}, retries left = {}".format(
                           len(task_entries), num_tasks_waiting,
                           num_tasks_scheduled, num_tasks_done, num_retries))
-                if all([
-                        status == state.TASK_STATUS_QUEUED
-                        for status in task_statuses
-                ]):
+                if all(status == state.TASK_STATUS_QUEUED
+                       for status in task_statuses):
                     # We're done, so pass.
                     break
             num_retries -= 1

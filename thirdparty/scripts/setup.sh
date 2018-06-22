@@ -18,7 +18,18 @@ else
 fi
 echo "Using Python executable $PYTHON_EXECUTABLE."
 
+LANGUAGE="python"
+if [[ -n  "$2" ]]; then
+  LANGUAGE=$2
+fi
+echo "Build language is $LANGUAGE."
+
 unamestr="$(uname)"
+
+##############################################
+# boost
+##############################################
+bash "$TP_SCRIPT_DIR/build_boost.sh"
 
 ##############################################
 # redis
@@ -31,11 +42,6 @@ bash "$TP_SCRIPT_DIR/build_redis.sh"
 bash "$TP_SCRIPT_DIR/build_credis.sh"
 
 ##############################################
-# boost
-##############################################
-bash "$TP_SCRIPT_DIR/build_boost.sh"
-
-##############################################
 # flatbuffers if necessary
 ##############################################
 if [[ "$unamestr" == "Linux" ]]; then
@@ -46,7 +52,7 @@ fi
 ##############################################
 # arrow
 ##############################################
-bash "$TP_SCRIPT_DIR/build_arrow.sh" $PYTHON_EXECUTABLE
+bash "$TP_SCRIPT_DIR/build_arrow.sh" $PYTHON_EXECUTABLE $LANGUAGE
 
 ##############################################
 # parquet (skipped as it is inlined in build_arrow.sh)

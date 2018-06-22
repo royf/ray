@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import pickle
-import queue
+from six.moves import queue
 
 import ray
 from ray.rllib.bc.experience_dataset import ExperienceDataset
@@ -13,13 +13,11 @@ from ray.rllib.optimizers import PolicyEvaluator
 
 
 class BCEvaluator(PolicyEvaluator):
-    def __init__(self, registry, env_creator, config, logdir):
-        env = ModelCatalog.get_preprocessor_as_wrapper(registry, env_creator(
+    def __init__(self, env_creator, config, logdir):
+        env = ModelCatalog.get_preprocessor_as_wrapper(env_creator(
             config["env_config"]), config["model"])
         self.dataset = ExperienceDataset(config["dataset_path"])
-        # TODO(rliaw): should change this to be just env.observation_space
-        self.policy = BCPolicy(registry, env.observation_space.shape,
-                               env.action_space, config)
+        self.policy = BCPolicy(env.observation_space, env.action_space, config)
         self.config = config
         self.logdir = logdir
         self.metrics_queue = queue.Queue()

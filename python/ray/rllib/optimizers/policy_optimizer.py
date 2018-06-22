@@ -38,18 +38,24 @@ class PolicyOptimizer(object):
 
         Args:
             evaluator_cls (class): Python class of the evaluators to create.
-            evaluator_args (list): List of constructor args for the evaluators.
+            evaluator_args (list|dict): Constructor args for the evaluators.
             num_workers (int): Number of remote evaluators to create in
                 addition to a local evaluator. This can be zero or greater.
             optimizer_config (dict): Keyword arguments to pass to the
                 optimizer class constructor.
         """
 
-        local_evaluator = evaluator_cls(*evaluator_args)
         remote_cls = ray.remote(**evaluator_resources)(evaluator_cls)
-        remote_evaluators = [
-            remote_cls.remote(*evaluator_args)
-            for _ in range(num_workers)]
+        if isinstance(evaluator_args, list):
+            local_evaluator = evaluator_cls(*evaluator_args)
+            remote_evaluators = [
+                remote_cls.remote(*evaluator_args)
+                for _ in range(num_workers)]
+        else:
+            local_evaluator = evaluator_cls(**evaluator_args)
+            remote_evaluators = [
+                remote_cls.remote(**evaluator_args)
+                for _ in range(num_workers)]
         return cls(optimizer_config, local_evaluator, remote_evaluators)
 
     def __init__(self, config, local_evaluator, remote_evaluators):
@@ -104,3 +110,23 @@ class PolicyOptimizer(object):
 
         self.num_steps_trained = data[0]
         self.num_steps_sampled = data[1]
+
+    def foreach_evaluator(self, func):
+        """Apply the given function to each evaluator instance."""
+
+        local_result = [func(self.local_evaluator)]
+        remote_results = ray.get(
+            [ev.apply.remote(func) for ev in self.remote_evaluators])
+        return local_result + remote_results
+
+    def foreach_evaluator_with_index(self, func):
+        """Apply the given function to each evaluator instance.
+
+        The index will be passed as the second arg to the given function.
+        """
+
+        local_result = [func(self.local_evaluator, 0)]
+        remote_results = ray.get(
+            [ev.apply.remote(func, i + 1)
+             for i, ev in enumerate(self.remote_evaluators)])
+        return local_result + remote_results
